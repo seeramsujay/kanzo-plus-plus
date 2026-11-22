@@ -97,7 +97,20 @@ impl Home {
     pub fn open(dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
         let dir = dir.canonicalize().unwrap_or(dir);
-        write_if_missing(&dir.join(".gitignore"), GITIGNORE)?;
+        let gitignore_path = dir.join(".gitignore");
+        if gitignore_path.exists() {
+            let existing = fs::read_to_string(&gitignore_path).unwrap_or_default();
+            if !existing.lines().any(|l| l.trim() == "auth_token") {
+                use std::io::Write;
+                let mut f = OpenOptions::new()
+                    .append(true)
+                    .open(&gitignore_path)
+                    .with_context(|| format!("cannot open {}", gitignore_path.display()))?;
+                writeln!(f, "auth_token").with_context(|| format!("cannot append to {}", gitignore_path.display()))?;
+            }
+        } else {
+            write_if_missing(&gitignore_path, GITIGNORE)?;
+        }
 
         let mut home = Self { dir, config: Config::default() };
         // During a pull, config.toml can be missing or another machine's, until kanzo sync puts it back.
@@ -145,27 +158,34 @@ impl Home {
                 return t.to_string();
             }
         }
-        let new_token = generate_secure_token();
-        let _ = self.set_auth_token(&new_token);
+        let new_token = generate_secure_token().expect("failed to generate cryptographically secure token");
+        if let Err(e) = self.set_auth_token(&new_token) {
+            static FALLBACK_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+            eprintln!("kanzo: warning: cannot persist auth_token: {e}");
+            return FALLBACK_TOKEN.get_or_init(|| new_token).clone();
+        }
         new_token
     }
 
     pub fn set_auth_token(&self, token: &str) -> io::Result<()> {
         let token_path = self.auth_token_path();
+        let tmp_path = self.dir.join("auth_token.tmp");
         #[cfg(unix)]
         {
+            use std::io::Write;
             use std::os::unix::fs::OpenOptionsExt;
             let mut opts = OpenOptions::new();
             opts.write(true).create(true).truncate(true).mode(0o600);
-            let mut file = opts.open(&token_path)?;
-            use std::io::Write;
+            let mut file = opts.open(&tmp_path)?;
             file.write_all(token.trim().as_bytes())?;
             file.write_all(b"\n")?;
+            file.flush()?;
         }
         #[cfg(not(unix))]
         {
-            fs::write(&token_path, format!("{}\n", token.trim()))?;
+            fs::write(&tmp_path, format!("{}\n", token.trim()))?;
         }
+        fs::rename(&tmp_path, &token_path)?;
         Ok(())
     }
 
@@ -331,29 +351,15 @@ pub fn hostname() -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-pub fn generate_secure_token() -> String {
-    #[cfg(unix)]
-    {
-        if let Ok(mut f) = File::open("/dev/urandom") {
-            use std::io::Read;
-            let mut buf = [0u8; 32];
-            if f.read_exact(&mut buf).is_ok() {
-                let mut s = String::with_capacity(64);
-                for b in buf {
-                    use std::fmt::Write;
-                    let _ = write!(s, "{:02x}", b);
-                }
-                return s;
-            }
-        }
+pub fn generate_secure_token() -> Result<String, getrandom::Error> {
+    let mut buf = [0u8; 32];
+    getrandom::fill(&mut buf)?;
+    let mut s = String::with_capacity(64);
+    for b in buf {
+        use std::fmt::Write;
+        let _ = write!(s, "{:02x}", b);
     }
-    (0..64)
-        .map(|_| {
-            const HEX: &[u8] = b"0123456789abcdef";
-            let idx = fastrand::usize(..16);
-            HEX[idx] as char
-        })
-        .collect()
+    Ok(s)
 }
 
 pub fn write_whole(path: &Path, bytes: &[u8]) -> io::Result<()> {

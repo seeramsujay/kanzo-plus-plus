@@ -427,10 +427,22 @@ struct LoginRequest {
     token: String,
 }
 
-async fn auth_login(State(home): State<Arc<Home>>, Json(req): Json<LoginRequest>) -> Response {
+fn session_cookie(token: &str, is_https: bool) -> String {
+    if is_https {
+        format!("kanzo_session={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000; Secure")
+    } else {
+        format!("kanzo_session={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000")
+    }
+}
+
+async fn auth_login(State(home): State<Arc<Home>>, headers: HeaderMap, Json(req): Json<LoginRequest>) -> Response {
     let expected = home.auth_token();
     if constant_time_eq(req.token.trim().as_bytes(), expected.as_bytes()) {
-        let cookie = format!("kanzo_session={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000", expected);
+        let is_https = headers
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.eq_ignore_ascii_case("https"));
+        let cookie = session_cookie(&expected, is_https);
         (
             StatusCode::OK,
             [
@@ -465,11 +477,19 @@ async fn auth_logout() -> Response {
         .into_response()
 }
 
-async fn index_handler(State(home): State<Arc<Home>>, Query(params): Query<HashMap<String, String>>) -> Response {
+async fn index_handler(
+    State(home): State<Arc<Home>>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
     if let Some(token) = params.get("token") {
         let expected = home.auth_token();
         if constant_time_eq(token.trim().as_bytes(), expected.as_bytes()) {
-            let cookie = format!("kanzo_session={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000", expected);
+            let is_https = headers
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.eq_ignore_ascii_case("https"));
+            let cookie = session_cookie(&expected, is_https);
             return (
                 StatusCode::SEE_OTHER,
                 [

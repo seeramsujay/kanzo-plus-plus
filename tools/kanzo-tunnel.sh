@@ -391,7 +391,8 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             if hmac.compare_digest(url_token, expected_token):
                 self.send_response(303)
                 self.send_header('Location', parsed_url.path or '/')
-                self.send_header('Set-Cookie', f'kanzo_session={expected_token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000')
+                self.send_header('Set-Cookie', f'kanzo_session={expected_token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000; Secure')
+                self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
 
@@ -414,9 +415,12 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         req = urllib.request.Request(target_url, data=body, method=self.command)
         
         for k, v in self.headers.items():
-            if k.lower() not in ['host', 'connection', 'content-length']:
+            if k.lower() not in ['host', 'connection', 'content-length', 'origin']:
                 req.add_header(k, v)
         req.add_header('Host', f'localhost:${LOCAL_PORT}')
+        if 'origin' in self.headers:
+            req.add_header('Origin', f'http://localhost:${LOCAL_PORT}')
+        req.add_header('X-Forwarded-Proto', 'https')
         if is_authed:
             req.add_header('Authorization', f'Bearer {expected_token}')
         
@@ -446,6 +450,12 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
     do_DELETE = do_ANY
     do_PATCH = do_ANY
     do_HEAD = do_ANY
+
+    def log_message(self, format, *args):
+        import re
+        msg = format % args
+        msg = re.sub(r'token=[^&\s]+', 'token=[REDACTED]', msg)
+        sys.stderr.write("%s - - [%s] %s\n" % (self.client_address[0], self.log_date_time_string(), msg))
 
 httpd = ThreadedHTTPServer(('127.0.0.1', ${PROXY_PORT}), ProxyHandler)
 httpd.serve_forever()

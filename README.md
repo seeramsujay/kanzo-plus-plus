@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml"><img src="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://crates.io/crates/kanzo"><img src="https://img.shields.io/crates/v/kanzo" alt="crates.io"></a>
+  <a href="https://github.com/seeramsujay/kanzo-plus-plus/releases"><img src="https://img.shields.io/github/v/release/seeramsujay/kanzo-plus-plus" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0"></a>
 </p>
 
@@ -50,7 +50,7 @@ Or download the Windows zip from the [latest release](https://github.com/seerams
 Every release is signed by GitHub: check a download with `gh attestation verify <file> --repo seeramsujay/kanzo-plus-plus`. Or with Cargo:
 
 ```sh
-cargo install kanzo
+cargo install --git https://github.com/seeramsujay/kanzo-plus-plus
 ```
 
 ## Start
@@ -193,6 +193,9 @@ Several computers, one board, at the same time: everyone sees the same tasks, an
 </picture>
 
 Nothing restarts and nothing needs configuring. Their sidebar shows the shared board's projects under their own, so their private projects stay one click away, and their agents use the shared board through the same `kanzo mcp`, still finding the project from the repo they work in. Turn sharing off, or click **Leave**, at any time.
+
+> [!NOTE]
+> Direct LAN sharing (`kanzo share on`) serves over plain HTTP. On untrusted networks or across the public internet, always connect through an encrypted tunnel (such as `tools/kanzo-tunnel.sh`) or a secure VPN (such as Tailscale or WireGuard) to ensure data confidentiality.
 
 From a terminal, or for an agent, it's `kanzo share on` and `kanzo join <address>`, then `kanzo share off` and `kanzo leave`.
 

@@ -13,6 +13,7 @@ mod web;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::home::Home;
@@ -192,7 +193,15 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Service { action: ServiceAction::Uninstall }) => service::uninstall(),
         Some(Command::Token { reset }) => {
             if reset {
-                let new_token = home::generate_secure_token();
+                if std::env::var("KANZO_AUTH_TOKEN").is_ok() {
+                    anyhow::bail!(
+                        "KANZO_AUTH_TOKEN environment variable is active. Update or unset the environment variable directly."
+                    );
+                }
+                if home.config.auth_token.is_some() {
+                    anyhow::bail!("auth_token is configured in config.toml. Update or remove it there directly.");
+                }
+                let new_token = home::generate_secure_token().context("failed to generate secure token")?;
                 home.set_auth_token(&new_token)?;
                 println!("New Kanzo Access Token generated: {new_token}");
             } else {

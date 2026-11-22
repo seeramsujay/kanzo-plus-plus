@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml"><img src="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://crates.io/crates/kanzo"><img src="https://img.shields.io/crates/v/kanzo" alt="crates.io"></a>
+  <a href="https://github.com/seeramsujay/kanzo-plus-plus/releases"><img src="https://img.shields.io/github/v/release/seeramsujay/kanzo-plus-plus" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0"></a>
 </p>
 
@@ -50,7 +50,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/seeramsujay/kanzo-
 每个版本都由 GitHub 签名：可以用 `gh attestation verify <file> --repo seeramsujay/kanzo-plus-plus` 校验下载的文件。也可以用 Cargo 安装：
 
 ```sh
-cargo install kanzo
+cargo install --git https://github.com/seeramsujay/kanzo-plus-plus
 ```
 
 ## 启动
@@ -193,6 +193,9 @@ codex mcp add kanzo -- kanzo mcp                 # Codex
 </picture>
 
 不用重启，也不用配置。它们的侧边栏会在自己的项目下方显示共享看板的项目，私有项目仍然一键可达；它们的智能体通过同样的 `kanzo mcp` 使用它，仍然根据所在仓库找到项目。你可以随时关闭共享，或点击 **离开**。
+
+> [!NOTE]
+> 直接局域网共享（`kanzo share on`）使用明文 HTTP 服务。在不受信任的网络或公共互联网上，请始终通过加密隧道（如 `tools/kanzo-tunnel.sh`）或安全 VPN（如 Tailscale 或 WireGuard）连接，以确保数据传输的机密性与安全。
 
 在终端中，或者对智能体来说，命令是 `kanzo share on` 和 `kanzo join <address>`，然后是 `kanzo share off` 和 `kanzo leave`。
 

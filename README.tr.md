@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml"><img src="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://crates.io/crates/kanzo"><img src="https://img.shields.io/crates/v/kanzo" alt="crates.io"></a>
+  <a href="https://github.com/seeramsujay/kanzo-plus-plus/releases"><img src="https://img.shields.io/github/v/release/seeramsujay/kanzo-plus-plus" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0"></a>
 </p>
 
@@ -53,7 +53,7 @@ Ya da [son sürümden](https://github.com/seeramsujay/kanzo-plus-plus/releases/l
 Her sürüm GitHub tarafından imzalanır: indirdiğin dosyayı `gh attestation verify <dosya> --repo seeramsujay/kanzo-plus-plus` ile doğrula. Ya da Cargo ile:
 
 ```sh
-cargo install kanzo
+cargo install --git https://github.com/seeramsujay/kanzo-plus-plus
 ```
 
 ## Başlat
@@ -196,6 +196,9 @@ Birden çok bilgisayar, tek pano, aynı anda: herkes aynı görevleri görür ve
 </picture>
 
 Hiçbir şey yeniden başlamaz ve hiçbir şeyi ayarlamak gerekmez. Kenar çubukları, paylaşılan panonun projelerini kendi projelerinin altında gösterir, böylece özel projeleri bir tık uzakta kalır; ajanları da paylaşılan panoyu aynı `kanzo mcp` üzerinden kullanır ve projeyi hâlâ çalıştıkları repodan bulur. Paylaşımı istediğin an kapat ya da **Leave**'e tıkla.
+
+> [!NOTE]
+> Doğrudan yerel ağ paylaşımı (`kanzo share on`) düz HTTP üzerinden hizmet verir. Güvenilmeyen ağlarda veya herkese açık internet üzerinden erişirken, veri gizliliğini sağlamak için daima şifrelenmiş bir tünel (`tools/kanzo-tunnel.sh` gibi) veya güvenli bir VPN (Tailscale ya da WireGuard gibi) üzerinden bağlanın.
 
 Terminalden ya da bir ajan için bu `kanzo share on` ve `kanzo join <adres>`, sonra da `kanzo share off` ve `kanzo leave` komutlarıdır.
 

@@ -1311,7 +1311,7 @@ $("#filter").addEventListener("keydown", (e) => {
 });
 function showAuthDialog() {
   const dlg = $("#auth-dialog");
-  if (!dlg) return;
+  if (!dlg || !dlg.hidden) return;
   dlg.hidden = false;
   $("#auth-token-input")?.focus();
 }
@@ -1347,7 +1347,7 @@ $("#auth-form")?.addEventListener("submit", async (e) => {
       return;
     }
     hideAuthDialog();
-    refreshBoard();
+    loadBoard();
   } catch (ex) {
     if (err) {
       err.textContent = ex.message || "Failed to authenticate";

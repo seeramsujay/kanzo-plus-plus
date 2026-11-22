@@ -711,7 +711,7 @@ dependencies = [
  "base64",
  "clap",
  "dirs",
- "fastrand",
+ "getrandom",
  "if-addrs",
  "libc",
  "rmcp",
