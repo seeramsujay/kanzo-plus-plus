@@ -21,6 +21,7 @@ val KanzoDarkFaint = Color(0xFF6E6E6E)
 val KanzoDarkWaits = Color(0xFFF5A524)
 val KanzoDarkLink = Color(0xFF7AB7FF)
 val KanzoDarkCode = Color(0xFF1C1C1C)
+val TagColor = Color(0xFF339AF0)
 
 // Light Theme (Kanzo Clean Light)
 val KanzoLightBg = Color(0xFFFFFFFF)
