@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.emanuele-em/kanzo",
-  "title": "Kanzo",
-  "description": "Self-hosted kanban for humans and agents. One 4.7 MB binary, starts in 3 ms, zero setup.",
+  "name": "io.github.seeramsujay/kanzo-plus-plus",
+  "title": "Kanzo++",
+  "description": "Self-hosted kanban for humans and agents with peak-security authentication and Fortinet bunker tunnel.",
   "repository": {
-    "url": "https://github.com/emanuele-em/kanzo",
+    "url": "https://github.com/seeramsujay/kanzo-plus-plus",
     "source": "github"
   },
-  "version": "0.4.2",
+  "version": "0.0.1",
   "packages": [
     {
       "registryType": "cargo",
       "identifier": "kanzo",
-      "version": "0.4.2",
+      "version": "0.0.1",
       "transport": { "type": "stdio" },
       "packageArguments": [{ "type": "positional", "value": "mcp" }]
     }

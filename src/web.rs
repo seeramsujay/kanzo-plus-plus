@@ -55,13 +55,17 @@ pub async fn serve(home: Home, open: bool) -> Result<()> {
     };
     #[cfg(windows)]
     exit_with_console();
+    let token = home.auth_token();
+    let authed_url = format!("http://localhost:{port}/?token={token}");
     println!("Kanzo board at {url}, data in {}", home.dir.display());
+    println!("Security Access Token: {token}");
+    println!("Direct unlock link: {authed_url}");
     match guard.net() {
         Net::Private => {}
         Net::Joined(host) => println!("It also shows the board at {host}."),
         _ => {
             println!("{}", guard.status().message());
-            println!("Anyone who can reach port {port} can read and change this board.");
+            println!("Protected with access token authentication.");
         }
     }
     if home.config.mcp_http {
@@ -69,8 +73,7 @@ pub async fn serve(home: Home, open: bool) -> Result<()> {
     }
     if open {
         // It waits to see if there's an app, which must not hold up the board.
-        let url = url.clone();
-        tokio::task::spawn_blocking(move || open_board(&url, port));
+        tokio::task::spawn_blocking(move || open_board(&authed_url, port));
     }
     // Cancelling this also ends open MCP streams, which would otherwise hold up shutdown.
     let shutdown = CancellationToken::new();
@@ -174,6 +177,7 @@ async fn stop_signal() {
 }
 
 fn router(home: Home, guard: Arc<Guard>, shutdown: CancellationToken) -> Router {
+    let home_arc = Arc::new(home.clone());
     // A joined board sends its agents to the shared one, while its page shows both boards.
     let mut agents = Router::new();
     if home.config.mcp_http {
@@ -201,9 +205,17 @@ fn router(home: Home, guard: Arc<Guard>, shutdown: CancellationToken) -> Router 
         .route("/api/images/{id}", delete(delete_image))
         .route("/api/tasks/{id}/images", post(attach_image))
         .route("/api/sync", get(sync_status).post(sync_now).put(sync_repo))
-        .route("/api/settings", patch(update_settings));
+        .route("/api/settings", patch(update_settings))
+        .route("/api/update", get(update_status).post(update_now))
+        .route("/api/network", get(network).post(change_network).route_layer(middleware::from_fn(this_computer)))
+        // The files are on this computer, whichever board the task is on.
+        .route("/api/open", post(open_file).route_layer(middleware::from_fn(this_computer)))
+        .route("/remote/{*path}", any(remote))
+        .merge(agents)
+        .route_layer(middleware::from_fn_with_state(home_arc.clone(), authenticate));
+
     Router::new()
-        .route("/", get(|| async { Html(INDEX) }))
+        .route("/", get(index_handler))
         .route("/app.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript; charset=utf-8")], APP_JS) }))
         .route(
             "/i18n/zh-cn.js",
@@ -217,17 +229,13 @@ fn router(home: Home, guard: Arc<Guard>, shutdown: CancellationToken) -> Router 
             get(|| async { ([(header::CONTENT_TYPE, "application/manifest+json")], MANIFEST) }),
         )
         .route("/api/ping", get(|| async { "kanzo" }))
-        .route("/api/update", get(update_status).post(update_now))
-        .route("/api/network", get(network).post(change_network).route_layer(middleware::from_fn(this_computer)))
-        // The files are on this computer, whichever board the task is on.
-        .route("/api/open", post(open_file).route_layer(middleware::from_fn(this_computer)))
-        .route("/remote/{*path}", any(remote))
+        .route("/api/auth/login", post(auth_login))
+        .route("/api/auth/logout", post(auth_logout))
         .merge(board)
-        .merge(agents)
         .layer(Extension(guard.clone()))
         .layer(middleware::from_fn_with_state(guard, protect))
         .layer(middleware::map_response(stamp_version))
-        .with_state(Arc::new(home))
+        .with_state(home_arc)
 }
 
 /// Pages compare it with the version they loaded with, and reload after an update. Set on
@@ -401,6 +409,138 @@ async fn protect(State(guard): State<Arc<Guard>>, req: Request, next: Next) -> R
     headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
     headers.entry(header::CACHE_CONTROL).or_insert(HeaderValue::from_static("no-cache"));
     res
+}
+
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+#[derive(Deserialize)]
+struct LoginRequest {
+    token: String,
+}
+
+fn session_cookie(token: &str, is_https: bool) -> String {
+    if is_https {
+        format!("kanzo_session={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000; Secure")
+    } else {
+        format!("kanzo_session={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000")
+    }
+}
+
+async fn auth_login(State(home): State<Arc<Home>>, headers: HeaderMap, Json(req): Json<LoginRequest>) -> Response {
+    let expected = home.auth_token();
+    if constant_time_eq(req.token.trim().as_bytes(), expected.as_bytes()) {
+        let is_https = headers
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.eq_ignore_ascii_case("https"));
+        let cookie = session_cookie(&expected, is_https);
+        (
+            StatusCode::OK,
+            [
+                (header::SET_COOKIE, HeaderValue::try_from(cookie).unwrap()),
+                (header::CONTENT_TYPE, HeaderValue::from_static("application/json")),
+            ],
+            r#"{"status":"ok"}"#,
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            [(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+            r#"{"error":"Invalid access token"}"#,
+        )
+            .into_response()
+    }
+}
+
+async fn auth_logout() -> Response {
+    (
+        StatusCode::OK,
+        [
+            (
+                header::SET_COOKIE,
+                HeaderValue::from_static("kanzo_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
+            ),
+            (header::CONTENT_TYPE, HeaderValue::from_static("application/json")),
+        ],
+        r#"{"status":"logged_out"}"#,
+    )
+        .into_response()
+}
+
+async fn index_handler(
+    State(home): State<Arc<Home>>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    if let Some(token) = params.get("token") {
+        let expected = home.auth_token();
+        if constant_time_eq(token.trim().as_bytes(), expected.as_bytes()) {
+            let is_https = headers
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.eq_ignore_ascii_case("https"));
+            let cookie = session_cookie(&expected, is_https);
+            return (
+                StatusCode::SEE_OTHER,
+                [
+                    (header::LOCATION, HeaderValue::from_static("/")),
+                    (header::SET_COOKIE, HeaderValue::try_from(cookie).unwrap()),
+                ],
+                "",
+            )
+                .into_response();
+        }
+    }
+    Html(INDEX).into_response()
+}
+
+async fn authenticate(State(home): State<Arc<Home>>, req: Request, next: Next) -> Response {
+    let expected = home.auth_token();
+    let authed = {
+        let mut ok = false;
+        if let Some(auth) = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok())
+            && let Some(bearer) = auth.strip_prefix("Bearer ").or_else(|| auth.strip_prefix("bearer "))
+            && constant_time_eq(bearer.trim().as_bytes(), expected.as_bytes())
+        {
+            ok = true;
+        }
+        if !ok && let Some(cookie) = req.headers().get(header::COOKIE).and_then(|v| v.to_str().ok()) {
+            for part in cookie.split(';') {
+                let part = part.trim();
+                if let Some(val) = part.strip_prefix("kanzo_session=")
+                    && constant_time_eq(val.trim().as_bytes(), expected.as_bytes())
+                {
+                    ok = true;
+                    break;
+                }
+            }
+        }
+        ok
+    };
+
+    if authed {
+        next.run(req).await
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            [
+                (header::CONTENT_TYPE, HeaderValue::from_static("application/json")),
+                (header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer error=\"invalid_token\"")),
+            ],
+            r#"{"error":"Unauthorized: valid Bearer token or kanzo_session cookie required"}"#,
+        )
+            .into_response()
+    }
 }
 
 type Shared = State<Arc<Home>>;
@@ -983,7 +1123,9 @@ mod tests {
     fn changelog_links_each_change() {
         for line in CHANGELOG.lines().filter(|l| l.starts_with("- ")) {
             assert!(
-                line.ends_with(')') && line.contains("](https://github.com/emanuele-em/kanzo/"),
+                line.ends_with(')')
+                    && (line.contains("](https://github.com/seeramsujay/kanzo-plus-plus/")
+                        || line.contains("](https://github.com/emanuele-em/kanzo/")),
                 "should end with a link to its pull request or commit, after any `thanks @name`: {line}"
             );
         }
@@ -1010,8 +1152,9 @@ mod tests {
         tokio::spawn(async move { axum::serve(listener, app).await });
         let body = json!({ "path": path }).to_string();
         let mut conn = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let token = home.auth_token();
         let head = format!(
-            "POST /api/open HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+            "POST /api/open HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
             body.len()
         );
         conn.write_all(format!("{head}{body}").as_bytes()).await.unwrap();
@@ -1041,10 +1184,14 @@ mod tests {
         });
     }
 
+    static TOKENS: std::sync::LazyLock<Mutex<HashMap<u16, String>>> =
+        std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
     /// A board for `home` on a free port, on the network the way `net` says.
     async fn serve_board(home: &Home, net: Net) -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
+        TOKENS.lock().unwrap().insert(port, home.auth_token());
         let guard = Arc::new(Guard::new(port, Ipv4Addr::LOCALHOST.into(), net));
         let app = router(home.clone(), guard, CancellationToken::new());
         tokio::spawn(
@@ -1055,8 +1202,18 @@ mod tests {
 
     /// The status and body of `GET path` on the board at `port`.
     async fn get(port: u16, path: &str) -> (u16, String) {
+        let token = TOKENS.lock().unwrap().get(&port).cloned();
+        get_with_token(port, path, token.as_deref()).await
+    }
+
+    async fn get_unauthed(port: u16, path: &str) -> (u16, String) {
+        get_with_token(port, path, None).await
+    }
+
+    async fn get_with_token(port: u16, path: &str, token: Option<&str>) -> (u16, String) {
         let mut conn = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        let head = format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+        let auth = token.map_or(String::new(), |t| format!("Authorization: Bearer {t}\r\n"));
+        let head = format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n{auth}\r\n");
         conn.write_all(head.as_bytes()).await.unwrap();
         let mut reply = Vec::new();
         conn.read_to_end(&mut reply).await.unwrap();
@@ -1081,6 +1238,7 @@ mod tests {
         let guest_dir = tempfile::tempdir().unwrap();
         let guest = Home::open(guest_dir.path().to_path_buf()).unwrap();
         guest.store().unwrap().create_project("mine", "Mine", None).unwrap();
+        guest.set_auth_token(&host.auth_token()).unwrap();
         let guest_port = serve_board(&guest, Net::Joined(format!("127.0.0.1:{host_port}"))).await;
         (host_dir, guest_dir, host_port, guest_port)
     }
@@ -1190,5 +1348,71 @@ mod tests {
         lan.set(Net::Private);
         assert!(!lan.allows("192.168.1.5:4242"));
         assert_eq!(lan.address(), IpAddr::from(Ipv4Addr::LOCALHOST));
+    }
+
+    #[test]
+    fn unauthenticated_request_is_rejected_with_401() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let tmp = tempfile::tempdir().unwrap();
+            let home = Home::open(tmp.path().to_path_buf()).unwrap();
+            let port = serve_board(&home, Net::Private).await;
+            let (status, body) = get_unauthed(port, "/api/board").await;
+            assert_eq!(status, 401, "{body}");
+            assert!(body.contains("Unauthorized"), "{body}");
+        });
+    }
+
+    #[test]
+    fn invalid_bearer_token_is_rejected_with_401() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let tmp = tempfile::tempdir().unwrap();
+            let home = Home::open(tmp.path().to_path_buf()).unwrap();
+            let port = serve_board(&home, Net::Private).await;
+            let (status, body) = get_with_token(port, "/api/board", Some("wrong-token")).await;
+            assert_eq!(status, 401, "{body}");
+            assert!(body.contains("Unauthorized"), "{body}");
+        });
+    }
+
+    #[test]
+    fn valid_cookie_authenticates_request() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let tmp = tempfile::tempdir().unwrap();
+            let home = Home::open(tmp.path().to_path_buf()).unwrap();
+            let port = serve_board(&home, Net::Private).await;
+            let mut conn = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let cookie = format!("kanzo_session={}", home.auth_token());
+            let head = format!("GET /api/board HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n");
+            conn.write_all(head.as_bytes()).await.unwrap();
+            let mut reply = Vec::new();
+            conn.read_to_end(&mut reply).await.unwrap();
+            let reply = String::from_utf8_lossy(&reply).into_owned();
+            let status = reply.split(' ').nth(1).unwrap().parse::<u16>().unwrap();
+            assert_eq!(status, 200, "{reply}");
+        });
+    }
+
+    #[test]
+    fn token_query_exchange_sets_cookie_and_redirects() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let tmp = tempfile::tempdir().unwrap();
+            let home = Home::open(tmp.path().to_path_buf()).unwrap();
+            let port = serve_board(&home, Net::Private).await;
+            let token = home.auth_token();
+            let mut conn = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let head = format!("GET /?token={token} HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+            conn.write_all(head.as_bytes()).await.unwrap();
+            let mut reply = Vec::new();
+            conn.read_to_end(&mut reply).await.unwrap();
+            let reply = String::from_utf8_lossy(&reply).into_owned();
+            let status = reply.split(' ').nth(1).unwrap().parse::<u16>().unwrap();
+            assert_eq!(status, 303, "{reply}");
+            assert!(reply.to_lowercase().contains("location: /"), "{reply}");
+            assert!(reply.to_lowercase().contains("set-cookie: kanzo_session="), "{reply}");
+        });
     }
 }

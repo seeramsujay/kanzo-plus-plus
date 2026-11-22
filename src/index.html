@@ -697,7 +697,7 @@ html:not(.ready) aside { visibility: hidden; }
         </div>
         <h3>What's new?</h3>
         <div class="md" id="whats-new"></div>
-        <div class="row"><a href="https://github.com/emanuele-em/kanzo/releases" target="_blank" rel="noopener">All releases</a></div>
+        <div class="row"><a href="https://github.com/seeramsujay/kanzo-plus-plus/releases" target="_blank" rel="noopener">All releases</a></div>
       </section>
     </div>
   </div>
@@ -720,7 +720,18 @@ html:not(.ready) aside { visibility: hidden; }
     </div>
   </form>
   <p class="error" id="network-error" hidden></p>
-  <p class="hint">There are no logins: share only on a network you trust.</p>
+  <p class="hint">Protected with token authentication.</p>
+</div>
+<div class="search-dialog" id="auth-dialog" hidden>
+  <form class="dialog-window" id="auth-form" role="dialog" aria-labelledby="auth-title">
+    <h2 id="auth-title">Kanzo Access Token</h2>
+    <p>This board is protected. Enter your access token to continue.</p>
+    <input class="field" id="auth-token-input" type="password" placeholder="Paste access token here" aria-label="Access Token" required autocomplete="current-password" spellcheck="false">
+    <p class="error" id="auth-error" hidden></p>
+    <div class="row">
+      <button class="btn primary" type="submit" id="auth-submit">Unlock Board</button>
+    </div>
+  </form>
 </div>
 <div class="search-dialog" id="project-dialog" hidden>
   <form class="dialog-window" id="new-project" role="dialog" aria-labelledby="project-title">

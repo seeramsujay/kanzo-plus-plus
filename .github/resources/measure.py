@@ -77,10 +77,25 @@ class Board:
                     raise SystemExit(f"{binary} did not listen within 10 s")
                 time.sleep(0.0002)
         self.start_ms = (time.perf_counter() - start) * 1000
+        self.auth_token = None
+        token_path = os.path.join(home, "auth_token")
+        for _ in range(50):
+            if os.path.exists(token_path):
+                try:
+                    with open(token_path) as f:
+                        t = f.read().strip()
+                        if t:
+                            self.auth_token = t
+                            break
+                except Exception:
+                    pass
+            time.sleep(0.05)
         self.conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
 
     def request(self, method, path, body=None):
         headers = {"Content-Type": "application/json"} if body is not None else {}
+        if self.auth_token:
+            headers["Authorization"] = f"Bearer {self.auth_token}"
         self.conn.request(method, path, body=json.dumps(body) if body is not None else None, headers=headers)
         res = self.conn.getresponse()
         data = res.read()

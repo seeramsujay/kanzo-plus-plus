@@ -13,6 +13,7 @@ mod web;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::home::Home;
@@ -34,6 +35,10 @@ struct Cli {
     /// Start the board without opening the browser
     #[arg(long)]
     no_open: bool,
+
+    /// Security access token for authenticating requests
+    #[arg(long)]
+    token: Option<String>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -91,6 +96,12 @@ enum Command {
         #[command(subcommand)]
         action: ServiceAction,
     },
+    /// Show or reset the security access token
+    Token {
+        /// Generate and save a new secure random access token
+        #[arg(long)]
+        reset: bool,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -144,6 +155,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     if let Some(port) = cli.port {
         home.config.port = port;
     }
+    if let Some(token) = cli.token {
+        home.config.auth_token = Some(token);
+    }
     match cli.command {
         None => web::serve(home, !cli.no_open).await,
         Some(Command::Mcp) => mcp::serve(home).await,
@@ -177,6 +191,24 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Leave) => network(home, Some(share::Change::Leave), !cli.no_open).await,
         Some(Command::Service { action: ServiceAction::Install }) => service::install(&home),
         Some(Command::Service { action: ServiceAction::Uninstall }) => service::uninstall(),
+        Some(Command::Token { reset }) => {
+            if reset {
+                if std::env::var("KANZO_AUTH_TOKEN").is_ok() {
+                    anyhow::bail!(
+                        "KANZO_AUTH_TOKEN environment variable is active. Update or unset the environment variable directly."
+                    );
+                }
+                if home.config.auth_token.is_some() {
+                    anyhow::bail!("auth_token is configured in config.toml. Update or remove it there directly.");
+                }
+                let new_token = home::generate_secure_token().context("failed to generate secure token")?;
+                home.set_auth_token(&new_token)?;
+                println!("New Kanzo Access Token generated: {new_token}");
+            } else {
+                println!("Kanzo Access Token: {}", home.auth_token());
+            }
+            Ok(())
+        }
         Some(Command::Update) => unreachable!("handled above"),
     }
 }

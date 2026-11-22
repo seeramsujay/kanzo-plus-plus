@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/emanuele-em/kanzo/actions/workflows/ci.yml"><img src="https://github.com/emanuele-em/kanzo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://crates.io/crates/kanzo"><img src="https://img.shields.io/crates/v/kanzo" alt="crates.io"></a>
+  <a href="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml"><img src="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/seeramsujay/kanzo-plus-plus/releases"><img src="https://img.shields.io/github/v/release/seeramsujay/kanzo-plus-plus" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0"></a>
 </p>
 
@@ -31,26 +31,26 @@ Kanzo 把浏览器里的看板和 MCP 服务器装进一个 4.7 MB 的程序，�
 ## 安装
 
 > [!TIP]
-> **直接告诉你的智能体：** *“从 github.com/emanuele-em/kanzo 安装 Kanzo。”*
+> **直接告诉你的智能体：** *“从 github.com/seeramsujay/kanzo-plus-plus 安装 Kanzo。”*
 
 ```sh
-curl -LsSf https://github.com/emanuele-em/kanzo/releases/latest/download/kanzo-installer.sh | sh
+curl -LsSf https://github.com/seeramsujay/kanzo-plus-plus/releases/latest/download/kanzo-installer.sh | sh
 ```
 
 适用于 macOS 和 Linux，包括所有型号的树莓派。在 Windows 上，请在 PowerShell 中运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/emanuele-em/kanzo/releases/latest/download/kanzo-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/seeramsujay/kanzo-plus-plus/releases/latest/download/kanzo-installer.ps1 | iex"
 ```
 
 两种方式都会把 Kanzo 加入 `PATH`，对之后新打开的终端生效。要在当前终端使用，请运行 `source $HOME/.cargo/env`（fish 中为 `env.fish`），或者打开一个新终端。
 
-也可以从[最新版本](https://github.com/emanuele-em/kanzo/releases/latest)下载 Windows zip，把 `kanzo.exe` 放到 `PATH` 中名为 `bin` 的文件夹里，比如 `%USERPROFILE%\.cargo\bin`：只有放在这里，看板才能自行更新。
+也可以从[最新版本](https://github.com/seeramsujay/kanzo-plus-plus/releases/latest)下载 Windows zip，把 `kanzo.exe` 放到 `PATH` 中名为 `bin` 的文件夹里，比如 `%USERPROFILE%\.cargo\bin`：只有放在这里，看板才能自行更新。
 
-每个版本都由 GitHub 签名：可以用 `gh attestation verify <file> --repo emanuele-em/kanzo` 校验下载的文件。也可以用 Cargo 安装：
+每个版本都由 GitHub 签名：可以用 `gh attestation verify <file> --repo seeramsujay/kanzo-plus-plus` 校验下载的文件。也可以用 Cargo 安装：
 
 ```sh
-cargo install kanzo
+cargo install --git https://github.com/seeramsujay/kanzo-plus-plus
 ```
 
 ## 启动
@@ -194,6 +194,9 @@ codex mcp add kanzo -- kanzo mcp                 # Codex
 
 不用重启，也不用配置。它们的侧边栏会在自己的项目下方显示共享看板的项目，私有项目仍然一键可达；它们的智能体通过同样的 `kanzo mcp` 使用它，仍然根据所在仓库找到项目。你可以随时关闭共享，或点击 **离开**。
 
+> [!NOTE]
+> 直接局域网共享（`kanzo share on`）使用明文 HTTP 服务。在不受信任的网络或公共互联网上，请始终通过加密隧道（如 `tools/kanzo-tunnel.sh`）或安全 VPN（如 Tailscale 或 WireGuard）连接，以确保数据传输的机密性与安全。
+
 在终端中，或者对智能体来说，命令是 `kanzo share on` 和 `kanzo join <address>`，然后是 `kanzo share off` 和 `kanzo leave`。
 
 无论看板放在哪里，都是这两条命令，只有地址不同：
@@ -294,4 +297,4 @@ editor = "/usr/local/bin/cursor"   # 用来打开 file:/// 链接；在 macOS �
 
 [AGPL-3.0](LICENSE)：可以使用、修改和分享；如果你通过网络提供修改后的版本，也要分享它的源代码。想要参与，请看 [CONTRIBUTING](.github/CONTRIBUTING.md)。
 
-<sub>mcp-name: io.github.emanuele-em/kanzo</sub>
+<sub>mcp-name: io.github.seeramsujay/kanzo-plus-plus</sub>

@@ -198,7 +198,9 @@ pub async fn request(home: &Home, change: Option<Change>) -> Result<(Status, boo
         Some(c) => ("POST", serde_json::to_vec(c)?),
         None => ("GET", Vec::new()),
     };
-    let json = [("content-type", "application/json")];
+    let token = home.auth_token();
+    let auth = format!("Bearer {token}");
+    let json = [("content-type", "application/json"), ("authorization", auth.as_str())];
     match send(&format!("127.0.0.1:{port}"), method, "/api/network", &json, &body).await {
         Ok(mut reply) => {
             let mut text = String::new();

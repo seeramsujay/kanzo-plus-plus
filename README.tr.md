@@ -6,8 +6,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/emanuele-em/kanzo/actions/workflows/ci.yml"><img src="https://github.com/emanuele-em/kanzo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://crates.io/crates/kanzo"><img src="https://img.shields.io/crates/v/kanzo" alt="crates.io"></a>
+  <a href="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml"><img src="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/seeramsujay/kanzo-plus-plus/releases"><img src="https://img.shields.io/github/v/release/seeramsujay/kanzo-plus-plus" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0"></a>
 </p>
 
@@ -34,26 +34,26 @@ Hiçbir dosyayı elle düzenlemezsin. Her şey şu üç yerden birinde yapılır
 ## Kurulum
 
 > [!TIP]
-> **Ajanına söylemen yeterli:** *"github.com/emanuele-em/kanzo adresinden Kanzo'yu kur."*
+> **Ajanına söylemen yeterli:** *"github.com/seeramsujay/kanzo-plus-plus adresinden Kanzo'yu kur."*
 
 ```sh
-curl -LsSf https://github.com/emanuele-em/kanzo/releases/latest/download/kanzo-installer.sh | sh
+curl -LsSf https://github.com/seeramsujay/kanzo-plus-plus/releases/latest/download/kanzo-installer.sh | sh
 ```
 
 macOS ve Linux için; bütün Raspberry Pi modelleri dahil. Windows'ta PowerShell'de:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/emanuele-em/kanzo/releases/latest/download/kanzo-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/seeramsujay/kanzo-plus-plus/releases/latest/download/kanzo-installer.ps1 | iex"
 ```
 
 İkisi de Kanzo'yu `PATH`'ine ekler; bundan sonra açacağın terminallerde geçerli olur. Kurulumu yaptığın terminalde kullanmak için `source $HOME/.cargo/env` çalıştır (fish'te `env.fish`) ya da yeni bir terminal aç.
 
-Ya da [son sürümden](https://github.com/emanuele-em/kanzo/releases/latest) Windows zip dosyasını indir ve `kanzo.exe`'yi `PATH`'inde bulunan `bin` adlı bir klasöre koy, örneğin `%USERPROFILE%\.cargo\bin`: pano kendini yalnızca orada güncelleyebilir.
+Ya da [son sürümden](https://github.com/seeramsujay/kanzo-plus-plus/releases/latest) Windows zip dosyasını indir ve `kanzo.exe`'yi `PATH`'inde bulunan `bin` adlı bir klasöre koy, örneğin `%USERPROFILE%\.cargo\bin`: pano kendini yalnızca orada güncelleyebilir.
 
-Her sürüm GitHub tarafından imzalanır: indirdiğin dosyayı `gh attestation verify <dosya> --repo emanuele-em/kanzo` ile doğrula. Ya da Cargo ile:
+Her sürüm GitHub tarafından imzalanır: indirdiğin dosyayı `gh attestation verify <dosya> --repo seeramsujay/kanzo-plus-plus` ile doğrula. Ya da Cargo ile:
 
 ```sh
-cargo install kanzo
+cargo install --git https://github.com/seeramsujay/kanzo-plus-plus
 ```
 
 ## Başlat
@@ -197,6 +197,9 @@ Birden çok bilgisayar, tek pano, aynı anda: herkes aynı görevleri görür ve
 
 Hiçbir şey yeniden başlamaz ve hiçbir şeyi ayarlamak gerekmez. Kenar çubukları, paylaşılan panonun projelerini kendi projelerinin altında gösterir, böylece özel projeleri bir tık uzakta kalır; ajanları da paylaşılan panoyu aynı `kanzo mcp` üzerinden kullanır ve projeyi hâlâ çalıştıkları repodan bulur. Paylaşımı istediğin an kapat ya da **Leave**'e tıkla.
 
+> [!NOTE]
+> Doğrudan yerel ağ paylaşımı (`kanzo share on`) düz HTTP üzerinden hizmet verir. Güvenilmeyen ağlarda veya herkese açık internet üzerinden erişirken, veri gizliliğini sağlamak için daima şifrelenmiş bir tünel (`tools/kanzo-tunnel.sh` gibi) veya güvenli bir VPN (Tailscale ya da WireGuard gibi) üzerinden bağlanın.
+
 Terminalden ya da bir ajan için bu `kanzo share on` ve `kanzo join <adres>`, sonra da `kanzo share off` ve `kanzo leave` komutlarıdır.
 
 Pano nerede durursa dursun aynı iki komut çalışır; yalnızca adres değişir:
@@ -297,4 +300,4 @@ Apple M4 üzerinde ölçüldü.
 
 [AGPL-3.0](LICENSE): kullan, değiştir ve paylaş; değiştirilmiş bir sürümü ağ üzerinden sunarsan kaynak kodunu da paylaş. Katkı için [CONTRIBUTING](.github/CONTRIBUTING.md)'e bak.
 
-<sub>mcp-name: io.github.emanuele-em/kanzo</sub>
+<sub>mcp-name: io.github.seeramsujay/kanzo-plus-plus</sub>
