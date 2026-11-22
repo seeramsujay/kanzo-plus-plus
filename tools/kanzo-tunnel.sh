@@ -308,10 +308,16 @@ EOF
 fi
 
 # Load or generate persistent session keys
+KANZO_DATA_DIR="${KANZO_HOME:-${HOME}/kanzo}"
+KANZO_CORE_TOKEN_FILE="${KANZO_DATA_DIR}/auth_token"
+
 if [[ -f "${CONFIG_FILE}" ]] && [[ "$RESET_KEYS" = false ]]; then
     TOPIC=$(python3 -c "import json; d = json.load(open('${CONFIG_FILE}')); print(d.get('ntfy_topic', ''))")
     KEY_B64=$(python3 -c "import json; d = json.load(open('${CONFIG_FILE}')); print(d.get('key', ''))")
     TOKEN=$(python3 -c "import json; d = json.load(open('${CONFIG_FILE}')); print(d.get('token', ''))")
+    if [[ -f "${KANZO_CORE_TOKEN_FILE}" ]]; then
+        TOKEN=$(cat "${KANZO_CORE_TOKEN_FILE}" | tr -d '[:space:]')
+    fi
     if [[ "$DAEMON_MODE" = false ]]; then
         echo -e "${GREEN}[✓] Loaded persistent device binding:${NC}"
         echo -e "    Channel Topic: ${CYAN}${TOPIC}${NC}"
@@ -321,7 +327,14 @@ if [[ -f "${CONFIG_FILE}" ]] && [[ "$RESET_KEYS" = false ]]; then
 else
     TOPIC="kanzo-bunker-$(openssl rand -hex 24)"
     KEY_B64=$(openssl rand 32 | base64 -w 0)
-    TOKEN=$(openssl rand -hex 24)
+    if [[ -f "${KANZO_CORE_TOKEN_FILE}" ]] && [[ "$RESET_KEYS" = false ]]; then
+        TOKEN=$(cat "${KANZO_CORE_TOKEN_FILE}" | tr -d '[:space:]')
+    else
+        TOKEN=$(openssl rand -hex 32)
+        mkdir -p "${KANZO_DATA_DIR}"
+        echo "$TOKEN" > "${KANZO_CORE_TOKEN_FILE}"
+        chmod 600 "${KANZO_CORE_TOKEN_FILE}"
+    fi
 
     cat <<EOF > "${CONFIG_FILE}"
 {
@@ -341,7 +354,7 @@ fi
 # Start transparent local HTTP reverse proxy on PROXY_PORT to rewrite Host to localhost:$LOCAL_PORT
 PROXY_PORT=$((LOCAL_PORT + 1))
 python3 -c "
-import http.server, urllib.request, sys
+import http.server, urllib.request, urllib.parse, sys, hmac
 
 class ThreadedHTTPServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
@@ -350,14 +363,48 @@ class ThreadedHTTPServer(http.server.ThreadingHTTPServer):
 class ProxyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     def do_ANY(self):
-        auth_header = self.headers.get('Authorization', '')
         expected_token = '${TOKEN}'
-        if not auth_header.startswith('Bearer ') or auth_header[7:].strip() != expected_token:
+        auth_header = self.headers.get('Authorization', '')
+        cookie_header = self.headers.get('Cookie', '')
+        
+        parsed_url = urllib.parse.urlparse(self.path)
+        query_params = urllib.parse.parse_qs(parsed_url.query)
+        
+        is_authed = False
+        if auth_header.startswith('Bearer '):
+            token_candidate = auth_header[7:].strip()
+            if hmac.compare_digest(token_candidate, expected_token):
+                is_authed = True
+        
+        if not is_authed and cookie_header:
+            for c in cookie_header.split(';'):
+                c = c.strip()
+                if c.startswith('kanzo_session='):
+                    val = c[len('kanzo_session='):].strip()
+                    if hmac.compare_digest(val, expected_token):
+                        is_authed = True
+                        break
+        
+        # Check token parameter in URL for browser unlock
+        if not is_authed and 'token' in query_params:
+            url_token = query_params['token'][0].strip()
+            if hmac.compare_digest(url_token, expected_token):
+                self.send_response(303)
+                self.send_header('Location', parsed_url.path or '/')
+                self.send_header('Set-Cookie', f'kanzo_session={expected_token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000')
+                self.end_headers()
+                return
+
+        public_paths = ['/', '/app.js', '/logo.png', '/icon.png', '/manifest.webmanifest', '/changelog.md', '/api/ping', '/api/auth/login']
+        is_public = parsed_url.path in public_paths or parsed_url.path.startswith('/i18n/')
+        
+        if not is_authed and not is_public:
             self.send_response(401)
-            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('WWW-Authenticate', 'Bearer error=\"invalid_token\"')
             self.send_header('Connection', 'close')
             self.end_headers()
-            self.wfile.write(b'Unauthorized: Invalid or missing pairing token')
+            self.wfile.write(b'{\"error\": \"Unauthorized: valid Bearer token or kanzo_session cookie required\"}')
             return
 
         content_len = int(self.headers.get('Content-Length', 0))
@@ -370,6 +417,8 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             if k.lower() not in ['host', 'connection', 'content-length']:
                 req.add_header(k, v)
         req.add_header('Host', f'localhost:${LOCAL_PORT}')
+        if is_authed:
+            req.add_header('Authorization', f'Bearer {expected_token}')
         
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:

@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/emanuele-em/kanzo/actions/workflows/ci.yml"><img src="https://github.com/emanuele-em/kanzo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml"><img src="https://github.com/seeramsujay/kanzo-plus-plus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://crates.io/crates/kanzo"><img src="https://img.shields.io/crates/v/kanzo" alt="crates.io"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0"></a>
 </p>
@@ -31,23 +31,23 @@ You never edit a file. Everything is done in one of three places:
 ## Install
 
 > [!TIP]
-> **Just ask your agent:** *"install Kanzo from github.com/emanuele-em/kanzo."*
+> **Just ask your agent:** *"install Kanzo from github.com/seeramsujay/kanzo-plus-plus."*
 
 ```sh
-curl -LsSf https://github.com/emanuele-em/kanzo/releases/latest/download/kanzo-installer.sh | sh
+curl -LsSf https://github.com/seeramsujay/kanzo-plus-plus/releases/latest/download/kanzo-installer.sh | sh
 ```
 
 For macOS and Linux, including every Raspberry Pi. On Windows, in PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/emanuele-em/kanzo/releases/latest/download/kanzo-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/seeramsujay/kanzo-plus-plus/releases/latest/download/kanzo-installer.ps1 | iex"
 ```
 
 Both add Kanzo to your `PATH`, for terminals you open from then on. To use it in the one you installed from, run `source $HOME/.cargo/env` (`env.fish` in fish), or open a new one.
 
-Or download the Windows zip from the [latest release](https://github.com/emanuele-em/kanzo/releases/latest) and put `kanzo.exe` in a folder named `bin` on your `PATH`, like `%USERPROFILE%\.cargo\bin`: the board updates itself only there.
+Or download the Windows zip from the [latest release](https://github.com/seeramsujay/kanzo-plus-plus/releases/latest) and put `kanzo.exe` in a folder named `bin` on your `PATH`, like `%USERPROFILE%\.cargo\bin`: the board updates itself only there.
 
-Every release is signed by GitHub: check a download with `gh attestation verify <file> --repo emanuele-em/kanzo`. Or with Cargo:
+Every release is signed by GitHub: check a download with `gh attestation verify <file> --repo seeramsujay/kanzo-plus-plus`. Or with Cargo:
 
 ```sh
 cargo install kanzo
@@ -294,4 +294,4 @@ Measured on an Apple M4.
 
 [AGPL-3.0](LICENSE): use it, change it and share it; if you offer a changed version over a network, share its source too. To help, see [CONTRIBUTING](.github/CONTRIBUTING.md).
 
-<sub>mcp-name: io.github.emanuele-em/kanzo</sub>
+<sub>mcp-name: io.github.seeramsujay/kanzo-plus-plus</sub>

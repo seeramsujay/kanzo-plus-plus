@@ -39,6 +39,7 @@ kanzo.db-wal
 kanzo.db-shm
 # Local to this machine.
 kanzo.lock
+auth_token
 *.bak
 # macOS metadata (AppleDouble files appear on exFAT drives).
 ._*
@@ -59,6 +60,7 @@ pub struct Config {
     _statuses: Option<toml::Value>,
     pub mcp_http: bool,
     pub editor: Option<PathBuf>,
+    pub auth_token: Option<String>,
 }
 
 impl Default for Config {
@@ -69,6 +71,7 @@ impl Default for Config {
             _statuses: None,
             mcp_http: true,
             editor: None,
+            auth_token: None,
         }
     }
 }
@@ -116,6 +119,54 @@ impl Home {
 
     pub fn db_path(&self) -> PathBuf {
         self.dir.join("kanzo.db")
+    }
+
+    pub fn auth_token_path(&self) -> PathBuf {
+        self.dir.join("auth_token")
+    }
+
+    pub fn auth_token(&self) -> String {
+        if let Ok(token) = std::env::var("KANZO_AUTH_TOKEN") {
+            let t = token.trim();
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
+        if let Some(token) = &self.config.auth_token {
+            let t = token.trim();
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
+        let token_path = self.auth_token_path();
+        if let Ok(token) = fs::read_to_string(&token_path) {
+            let t = token.trim();
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
+        let new_token = generate_secure_token();
+        let _ = self.set_auth_token(&new_token);
+        new_token
+    }
+
+    pub fn set_auth_token(&self, token: &str) -> io::Result<()> {
+        let token_path = self.auth_token_path();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut opts = OpenOptions::new();
+            opts.write(true).create(true).truncate(true).mode(0o600);
+            let mut file = opts.open(&token_path)?;
+            use std::io::Write;
+            file.write_all(token.trim().as_bytes())?;
+            file.write_all(b"\n")?;
+        }
+        #[cfg(not(unix))]
+        {
+            fs::write(&token_path, format!("{}\n", token.trim()))?;
+        }
+        Ok(())
     }
 
     /// Where `kanzo sync` keeps this machine's config.toml during a pull; git ignores `*.bak`.
@@ -278,6 +329,31 @@ pub fn hostname() -> String {
     name(Command::new("scutil").args(["--get", "ComputerName"]))
         .or_else(|| name(&mut Command::new("hostname")))
         .unwrap_or_else(|| "unknown".into())
+}
+
+pub fn generate_secure_token() -> String {
+    #[cfg(unix)]
+    {
+        if let Ok(mut f) = File::open("/dev/urandom") {
+            use std::io::Read;
+            let mut buf = [0u8; 32];
+            if f.read_exact(&mut buf).is_ok() {
+                let mut s = String::with_capacity(64);
+                for b in buf {
+                    use std::fmt::Write;
+                    let _ = write!(s, "{:02x}", b);
+                }
+                return s;
+            }
+        }
+    }
+    (0..64)
+        .map(|_| {
+            const HEX: &[u8] = b"0123456789abcdef";
+            let idx = fastrand::usize(..16);
+            HEX[idx] as char
+        })
+        .collect()
 }
 
 pub fn write_whole(path: &Path, bytes: &[u8]) -> io::Result<()> {

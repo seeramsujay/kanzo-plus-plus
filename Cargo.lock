@@ -704,13 +704,14 @@ dependencies = [
 
 [[package]]
 name = "kanzo"
-version = "0.4.2"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
  "base64",
  "clap",
  "dirs",
+ "fastrand",
  "if-addrs",
  "libc",
  "rmcp",

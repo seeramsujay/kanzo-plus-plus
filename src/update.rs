@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
-const RELEASES: &str = "https://github.com/emanuele-em/kanzo/releases/latest/download";
+const RELEASES: &str = "https://github.com/seeramsujay/kanzo-plus-plus/releases/latest/download";
 
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 

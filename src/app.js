@@ -51,6 +51,9 @@ async function api(method, path, body, board) {
     body: image || !body ? body : JSON.stringify(body),
   });
   noticeVersion(res.headers.get("x-kanzo-version"));
+  if (res.status === 401) {
+    showAuthDialog();
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { data });
   return data;
@@ -1306,8 +1309,52 @@ $("#filter").addEventListener("keydown", (e) => {
   else if (e.key === "Enter" && text) { box.value = ""; paintQuery(box); setFilters([...savedFilters(), text]); }
   else if (e.key === "Backspace" && !box.value && savedFilters().length) setFilters(savedFilters().slice(0, -1));
 });
+function showAuthDialog() {
+  const dlg = $("#auth-dialog");
+  if (!dlg) return;
+  dlg.hidden = false;
+  $("#auth-token-input")?.focus();
+}
+
+function hideAuthDialog() {
+  const dlg = $("#auth-dialog");
+  if (!dlg) return;
+  dlg.hidden = true;
+  $("#auth-form")?.reset();
+  const err = $("#auth-error");
+  if (err) err.hidden = true;
+}
+
 $("#new-project-toggle").addEventListener("click", showNewProject);
 $("#new-project-cancel").addEventListener("click", hideNewProject);
+$("#auth-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const token = $("#auth-token-input").value.trim();
+  const err = $("#auth-error");
+  if (!token) return;
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (err) {
+        err.textContent = data.error || "Invalid access token";
+        err.hidden = false;
+      }
+      return;
+    }
+    hideAuthDialog();
+    refreshBoard();
+  } catch (ex) {
+    if (err) {
+      err.textContent = ex.message || "Failed to authenticate";
+      err.hidden = false;
+    }
+  }
+});
 $("#new-project").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
