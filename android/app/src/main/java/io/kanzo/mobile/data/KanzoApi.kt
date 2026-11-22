@@ -7,11 +7,14 @@ import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.sse.EventSource
-import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+
+data class ChangesResponse(
+    val changes: String = "",
+    val guests: Int? = null,
+    val joined: String? = null
+)
 
 class KanzoApi(
     private var baseUrl: String = "http://10.0.2.2:4242",
@@ -126,17 +129,12 @@ class KanzoApi(
         }
     }
 
-    fun startSseListener(onChanged: () -> Unit): EventSource {
-        val req = newRequestBuilder("/api/changes").build()
-        val factory = EventSources.createFactory(client)
-        return factory.newEventSource(req, object : EventSourceListener() {
-            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                onChanged()
-            }
-
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                // Retry after brief delay
-            }
-        })
+    suspend fun getChanges(): ChangesResponse = withContext(Dispatchers.IO) {
+        val req = newRequestBuilder("/api/changes").get().build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("Changes call failed: ${resp.code}")
+            val body = resp.body?.string() ?: throw IOException("Empty response")
+            gson.fromJson(body, ChangesResponse::class.java)
+        }
     }
 }

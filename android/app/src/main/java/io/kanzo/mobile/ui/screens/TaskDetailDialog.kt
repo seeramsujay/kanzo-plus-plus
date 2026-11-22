@@ -1,9 +1,11 @@
 package io.kanzo.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -21,6 +23,7 @@ import androidx.compose.ui.window.DialogProperties
 import io.kanzo.mobile.model.TaskDetail
 import io.kanzo.mobile.theme.KanzoGreen
 import io.kanzo.mobile.theme.TagColor
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,9 +32,11 @@ fun TaskDetailDialog(
     availableStatuses: List<String>,
     onDismiss: () -> Unit,
     onMove: (String) -> Unit,
-    onAddComment: (String) -> Unit
+    onAddComment: suspend (String) -> Boolean
 ) {
     var commentText by remember { mutableStateOf("") }
+    var isSubmittingComment by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     val task = taskDetail.task
 
     Dialog(
@@ -80,7 +85,9 @@ fun TaskDetailDialog(
                 // Move status chips
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
                 ) {
                     availableStatuses.forEach { status ->
                         val isCurrent = status == task.status
@@ -94,66 +101,72 @@ fun TaskDetailDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Text(
-                    text = task.title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-
-                if (task.tags.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        task.tags.forEach { tag ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(TagColor.copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                            ) {
-                                Text(text = tag, fontSize = 12.sp, color = TagColor, fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    }
-                }
-
-                if (task.description.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = task.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                if (taskDetail.waitsOn.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Waits on: " + taskDetail.waitsOn.joinToString { "#${it.id} ${it.title}" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-                Text(
-                    text = "Comments (${taskDetail.comments.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Comments list
+                // Scrollable Content
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    item {
+                        Text(
+                            text = task.title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (task.tags.isNotEmpty()) {
+                        item {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                            ) {
+                                task.tags.forEach { tag ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(TagColor.copy(alpha = 0.15f))
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text(text = tag, fontSize = 12.sp, color = TagColor, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (task.description.isNotBlank()) {
+                        item {
+                            Text(
+                                text = task.description,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    if (taskDetail.waitsOn.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "Waits on: " + taskDetail.waitsOn.joinToString { "#${it.id} ${it.title}" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+
+                    item {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text(
+                            text = "Comments (${taskDetail.comments.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
                     if (taskDetail.comments.isEmpty()) {
                         item {
                             Text(
@@ -209,14 +222,32 @@ fun TaskDetailDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(
                         onClick = {
-                            if (commentText.isNotBlank()) {
-                                onAddComment(commentText)
-                                commentText = ""
+                            val draft = commentText.trim()
+                            if (draft.isNotBlank() && !isSubmittingComment) {
+                                coroutineScope.launch {
+                                    isSubmittingComment = true
+                                    val success = onAddComment(draft)
+                                    if (success) {
+                                        if (commentText.trim() == draft) {
+                                            commentText = ""
+                                        }
+                                    }
+                                    isSubmittingComment = false
+                                }
                             }
                         },
+                        enabled = commentText.isNotBlank() && !isSubmittingComment,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = KanzoGreen)
                     ) {
-                        Icon(imageVector = Icons.Default.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.onPrimary)
+                        if (isSubmittingComment) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Icon(imageVector = Icons.Default.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
                     }
                 }
             }

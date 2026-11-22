@@ -2,15 +2,15 @@
 
 Native Android client for [Kanzo](https://github.com/emanuele-em/kanzo) built with **Kotlin 2.0+** and **Jetpack Compose Material 3**.
 
-Connects to your self-hosted Kanzo board from anywhere in the world over an end-to-end encrypted reverse tunnel (Pinggy / Cloudflare / WireGuard) or direct local network.
+Connects to your self-hosted Kanzo board from anywhere in the world over an HTTPS reverse tunnel (Pinggy / Cloudflare / WireGuard) with AES-256-GCM encrypted rendezvous discovery or direct local network.
 
 ---
 
 ## ✨ Features
 
 - 📱 **Native Material 3 / Material You**: Obsidian dark mode and dynamic wallpaper color extraction (Android 12+).
-- 🔒 **Zero-Trust Encrypted Bunker Tunnel**: Connects via AES-256-GCM encrypted reverse tunnel over SSH port 443 with ephemeral ntfy rendezvous federation. Bypasses Fortinet, hostel, and corporate firewalls.
-- ⚡ **Real-Time Kanban Sync**: Automatic instant board updates as coding agents move cards, via Server-Sent Events (`/api/changes`).
+- 🔒 **Zero-Trust Encrypted Rendezvous & Tunnel**: Discovers dynamic endpoints via AES-256-GCM encrypted rendezvous payloads over ephemeral ntfy channels. Reverse-forwards traffic via Pinggy outbound SSH over TCP port 443 with TLS transport and bearer token authentication, bypassing Fortinet and corporate firewalls.
+- ⚡ **Real-Time Kanban Sync**: Automatic instant board updates as coding agents move cards via continuous change detection (`/api/changes`).
 - 📋 **Full Board Management**:
   - Columns: Backlog, Todo, Doing, Review, Done.
   - Task cards with tags, waits-on dependency badges, and human-only flags.
@@ -23,15 +23,24 @@ Connects to your self-hosted Kanzo board from anywhere in the world over an end-
 
 ## 🚀 Quick Pairing Workflow
 
-### 1. Start Tunnel on Laptop / Server
+### 1. Prerequisites (Python Cryptography)
+Ensure the host has Python 3 and the `cryptography` package installed:
+```bash
+python3 -m pip install cryptography
+# or on Debian/Ubuntu: sudo apt install python3-cryptography
+```
+
+### 2. Start Tunnel on Laptop / Server
 On the machine running Kanzo (`127.0.0.1:4242`):
+
 ```bash
 tools/kanzo-tunnel.sh --bind
 ```
+
 This displays the pairing QR code and prints the pairing ticket:
 `KANZOBUNKER:<ticket>`
 
-### 2. Connect in Android App
+### 3. Connect in Android App
 1. Open the Kanzo Mobile App.
 2. Tap the connection status pill in the top bar.
 3. In the **Bunker Tunnel** tab, paste the `KANZOBUNKER:...` ticket.

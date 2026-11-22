@@ -78,7 +78,7 @@ fun TaskCard(
                         }
                     }
 
-                    if (task.waitsOn.isNotEmpty()) {
+                    if (task.waitingOn.isNotEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = MaterialTheme.colorScheme.errorContainer
@@ -95,7 +95,7 @@ fun TaskCard(
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = "Waits #${task.waitsOn.first().id}",
+                                    text = "Waits #${task.waitingOn.first()}",
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     fontWeight = FontWeight.Medium

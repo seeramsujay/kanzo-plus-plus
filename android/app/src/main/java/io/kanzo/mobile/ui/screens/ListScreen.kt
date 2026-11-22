@@ -128,7 +128,7 @@ fun TaskRowItem(
                     )
                 }
 
-                if (task.waitsOn.isNotEmpty()) {
+                if (task.waitingOn.isNotEmpty()) {
                     Icon(
                         imageVector = Icons.Default.HourglassTop,
                         contentDescription = "Waits",

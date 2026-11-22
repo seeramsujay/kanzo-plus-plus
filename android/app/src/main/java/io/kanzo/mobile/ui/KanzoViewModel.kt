@@ -7,9 +7,12 @@ import io.kanzo.mobile.data.KanzoApi
 import io.kanzo.mobile.data.KanzoTunnel
 import io.kanzo.mobile.data.SettingsStore
 import io.kanzo.mobile.model.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import okhttp3.sse.EventSource
 
 enum class ConnectionState {
     DISCONNECTED,
@@ -43,59 +46,98 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedTaskDetail = MutableStateFlow<TaskDetail?>(null)
     val selectedTaskDetail: StateFlow<TaskDetail?> = _selectedTaskDetail.asStateFlow()
 
-    private var sseSource: EventSource? = null
+    private var connectionJob: Job? = null
+    private var boardRefreshJob: Job? = null
+    private var pollingJob: Job? = null
+    private var taskDetailJob: Job? = null
+    private var lastChangeToken: String? = null
 
     init {
+        // Observe connection settings separately from project selection
         viewModelScope.launch {
-            combine(settingsStore.serverUrl, settingsStore.bunkerTicket, settingsStore.selectedProject) { url, ticket, proj ->
-                Triple(url, ticket, proj)
-            }.collectLatest { (url, ticket, proj) ->
+            combine(settingsStore.serverUrl, settingsStore.bunkerTicket) { url, ticket ->
+                Pair(url, ticket)
+            }.distinctUntilChanged().collectLatest { (url, ticket) ->
+                connectionJob?.cancel()
+                connectionJob = launch {
+                    if (ticket.isNotBlank()) {
+                        connectBunkerInternal(ticket)
+                    } else if (url.isNotBlank()) {
+                        connectDirectInternal(url)
+                    }
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            settingsStore.selectedProject.distinctUntilChanged().collectLatest { proj ->
                 _activeProject.value = proj
-                if (ticket.isNotBlank()) {
-                    connectBunker(ticket)
-                } else if (url.isNotBlank()) {
-                    connectDirect(url)
+                if (_connectionState.value == ConnectionState.CONNECTED) {
+                    refreshBoard()
                 }
             }
         }
     }
 
+    private fun invalidateConnectionState() {
+        pollingJob?.cancel()
+        boardRefreshJob?.cancel()
+        taskDetailJob?.cancel()
+        _board.value = null
+        _selectedTaskDetail.value = null
+        lastChangeToken = null
+    }
+
     fun connectDirect(url: String) {
         viewModelScope.launch {
-            _connectionState.value = ConnectionState.CONNECTING
-            _errorMessage.value = null
-            try {
-                api.updateEndpoint(url)
-                settingsStore.saveServerUrl(url)
-                settingsStore.saveBunkerTicket("")
-                refreshBoard()
-                _connectionState.value = ConnectionState.CONNECTED
-                startSse()
-            } catch (e: Exception) {
-                _connectionState.value = ConnectionState.ERROR
-                _errorMessage.value = "Cannot reach board at $url: ${e.message}"
-            }
+            settingsStore.saveServerUrl(url)
+            settingsStore.saveBunkerTicket("")
+            connectDirectInternal(url)
+        }
+    }
+
+    private suspend fun connectDirectInternal(url: String) {
+        invalidateConnectionState()
+        _connectionState.value = ConnectionState.CONNECTING
+        _errorMessage.value = null
+        try {
+            api.updateEndpoint(url)
+            refreshBoardSuspend()
+            _connectionState.value = ConnectionState.CONNECTED
+            startPolling()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _connectionState.value = ConnectionState.ERROR
+            _errorMessage.value = "Cannot reach board at $url: ${e.message}"
         }
     }
 
     fun connectBunker(ticket: String) {
         viewModelScope.launch {
-            _connectionState.value = ConnectionState.CONNECTING
-            _errorMessage.value = null
-            try {
-                val config = KanzoTunnel.parse(ticket)
-                    ?: throw IllegalArgumentException("Invalid Bunker pairing ticket format")
-                val endpoint = KanzoTunnel.resolveTunnelUrl(config)
-                api.updateEndpoint(endpoint.url, endpoint.token)
-                settingsStore.saveBunkerTicket(ticket)
-                settingsStore.saveServerUrl(endpoint.url)
-                refreshBoard()
-                _connectionState.value = ConnectionState.CONNECTED
-                startSse()
-            } catch (e: Exception) {
-                _connectionState.value = ConnectionState.ERROR
-                _errorMessage.value = "Failed to decrypt tunnel: ${e.message}"
-            }
+            settingsStore.saveBunkerTicket(ticket)
+            connectBunkerInternal(ticket)
+        }
+    }
+
+    private suspend fun connectBunkerInternal(ticket: String) {
+        invalidateConnectionState()
+        _connectionState.value = ConnectionState.CONNECTING
+        _errorMessage.value = null
+        try {
+            val config = KanzoTunnel.parse(ticket)
+                ?: throw IllegalArgumentException("Invalid Bunker pairing ticket format")
+            val endpoint = KanzoTunnel.resolveTunnelUrl(config)
+            api.updateEndpoint(endpoint.url, endpoint.token)
+            settingsStore.saveServerUrl(endpoint.url)
+            refreshBoardSuspend()
+            _connectionState.value = ConnectionState.CONNECTED
+            startPolling()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _connectionState.value = ConnectionState.ERROR
+            _errorMessage.value = "Failed to connect tunnel: ${e.message}"
         }
     }
 
@@ -114,28 +156,41 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    suspend fun refreshBoardSuspend() {
+        _isLoading.value = true
+        try {
+            val proj = _activeProject.value.takeIf { it != "all" }
+            val query = _searchQuery.value.takeIf { it.isNotBlank() }
+            val b = api.getBoard(proj, query)
+            _board.value = b
+            lastChangeToken = b.changes
+        } finally {
+            _isLoading.value = false
+        }
+    }
+
     fun refreshBoard() {
-        viewModelScope.launch {
-            _isLoading.value = true
+        boardRefreshJob?.cancel()
+        boardRefreshJob = viewModelScope.launch {
             try {
-                val proj = _activeProject.value.takeIf { it != "all" }
-                val query = _searchQuery.value.takeIf { it.isNotBlank() }
-                val b = api.getBoard(proj, query)
-                _board.value = b
+                refreshBoardSuspend()
                 _connectionState.value = ConnectionState.CONNECTED
+            } catch (e: CancellationException) {
+                // Cancelled for a newer refresh request
             } catch (e: Exception) {
                 _errorMessage.value = e.message
-            } finally {
-                _isLoading.value = false
             }
         }
     }
 
     fun openTaskDetail(taskId: Long) {
-        viewModelScope.launch {
+        taskDetailJob?.cancel()
+        taskDetailJob = viewModelScope.launch {
             try {
                 val detail = api.getTask(taskId)
                 _selectedTaskDetail.value = detail
+            } catch (e: CancellationException) {
+                // Cancelled
             } catch (e: Exception) {
                 _errorMessage.value = "Failed to load task #$taskId: ${e.message}"
             }
@@ -143,17 +198,24 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closeTaskDetail() {
+        taskDetailJob?.cancel()
         _selectedTaskDetail.value = null
+    }
+
+    suspend fun createTaskAsync(project: String, title: String, description: String? = null): Boolean {
+        return try {
+            api.createTask(project, title, description)
+            refreshBoard()
+            true
+        } catch (e: Exception) {
+            _errorMessage.value = "Failed to create task: ${e.message}"
+            false
+        }
     }
 
     fun createTask(project: String, title: String, description: String? = null) {
         viewModelScope.launch {
-            try {
-                api.createTask(project, title, description)
-                refreshBoard()
-            } catch (e: Exception) {
-                _errorMessage.value = "Failed to create task: ${e.message}"
-            }
+            createTaskAsync(project, title, description)
         }
     }
 
@@ -171,27 +233,53 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addComment(taskId: Long, body: String) {
-        viewModelScope.launch {
-            try {
-                api.addComment(taskId, body)
-                openTaskDetail(taskId)
-                refreshBoard()
-            } catch (e: Exception) {
-                _errorMessage.value = "Failed to add comment: ${e.message}"
-            }
+    suspend fun addCommentAsync(taskId: Long, body: String): Boolean {
+        return try {
+            api.addComment(taskId, body)
+            openTaskDetail(taskId)
+            refreshBoard()
+            true
+        } catch (e: Exception) {
+            _errorMessage.value = "Failed to add comment: ${e.message}"
+            false
         }
     }
 
-    private fun startSse() {
-        sseSource?.cancel()
-        sseSource = api.startSseListener {
-            refreshBoard()
+    fun addComment(taskId: Long, body: String) {
+        viewModelScope.launch {
+            addCommentAsync(taskId, body)
+        }
+    }
+
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
+    private fun startPolling() {
+        pollingJob?.cancel()
+        pollingJob = viewModelScope.launch {
+            while (isActive) {
+                try {
+                    val changes = api.getChanges()
+                    if (lastChangeToken != null && lastChangeToken != changes.changes) {
+                        refreshBoard()
+                    }
+                    lastChangeToken = changes.changes
+                    delay(2500)
+                } catch (e: CancellationException) {
+                    break
+                } catch (e: Exception) {
+                    delay(5000)
+                }
+            }
         }
     }
 
     override fun onCleared() {
         super.onCleared()
-        sseSource?.cancel()
+        pollingJob?.cancel()
+        boardRefreshJob?.cancel()
+        taskDetailJob?.cancel()
+        connectionJob?.cancel()
     }
 }

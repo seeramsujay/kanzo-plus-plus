@@ -4,8 +4,10 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -44,6 +46,17 @@ fun KanzoApp(viewModel: KanzoViewModel) {
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let { msg ->
+            snackbarHostState.showSnackbar(
+                message = msg,
+                duration = SnackbarDuration.Short
+            )
+            viewModel.clearErrorMessage()
+        }
+    }
 
     val statuses = board?.statuses ?: listOf("todo", "doing", "review", "done")
     var selectedStatus by remember(statuses) {
@@ -74,32 +87,11 @@ fun KanzoApp(viewModel: KanzoViewModel) {
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline)
 
-                NavigationDrawerItem(
-                    label = {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("All Projects", fontWeight = if (activeProject == "all") FontWeight.Bold else FontWeight.Normal)
-                            val totalOpen = board?.projects?.sumOf { it.open } ?: 0
-                            Text(
-                                text = "$totalOpen",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    selected = activeProject == "all",
-                    onClick = {
-                        viewModel.setProject("all")
-                        coroutineScope.launch { drawerState.close() }
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                board?.projects?.forEach { proj ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
                     NavigationDrawerItem(
                         label = {
                             Row(
@@ -107,27 +99,55 @@ fun KanzoApp(viewModel: KanzoViewModel) {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(proj.name, fontWeight = if (activeProject == proj.slug) FontWeight.Bold else FontWeight.Normal)
+                                Text("All Projects", fontWeight = if (activeProject == "all") FontWeight.Bold else FontWeight.Normal)
+                                val totalOpen = board?.projects?.sumOf { it.open } ?: 0
                                 Text(
-                                    text = "${proj.open}",
+                                    text = "$totalOpen",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         },
-                        selected = activeProject == proj.slug,
+                        selected = activeProject == "all",
                         onClick = {
-                            viewModel.setProject(proj.slug)
+                            viewModel.setProject("all")
                             coroutineScope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                         shape = RoundedCornerShape(10.dp)
                     )
+
+                    board?.projects?.forEach { proj ->
+                        NavigationDrawerItem(
+                            label = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(proj.name, fontWeight = if (activeProject == proj.slug) FontWeight.Bold else FontWeight.Normal)
+                                    Text(
+                                        text = "${proj.open}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            selected = activeProject == proj.slug,
+                            onClick = {
+                                viewModel.setProject(proj.slug)
+                                coroutineScope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                    }
                 }
             }
         }
     ) {
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
                     title = {
@@ -291,8 +311,7 @@ fun KanzoApp(viewModel: KanzoViewModel) {
             defaultProject = activeProject,
             onDismiss = { showCreateDialog = false },
             onCreate = { proj, title, desc ->
-                viewModel.createTask(proj, title, desc)
-                showCreateDialog = false
+                viewModel.createTaskAsync(proj, title, desc)
             }
         )
     }
@@ -303,7 +322,7 @@ fun KanzoApp(viewModel: KanzoViewModel) {
             availableStatuses = statuses,
             onDismiss = { viewModel.closeTaskDetail() },
             onMove = { newStatus -> viewModel.moveTask(detail.task.id, newStatus) },
-            onAddComment = { body -> viewModel.addComment(detail.task.id, body) }
+            onAddComment = { body -> viewModel.addCommentAsync(detail.task.id, body) }
         )
     }
 

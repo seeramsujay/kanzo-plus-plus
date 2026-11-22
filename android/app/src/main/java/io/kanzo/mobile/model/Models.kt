@@ -36,7 +36,7 @@ data class Task(
     @SerializedName("created_at") val createdAt: String = "",
     @SerializedName("updated_at") val updatedAt: String = "",
     val comments: Long = 0,
-    @SerializedName("waits_on") val waitsOn: List<TaskLink> = emptyList()
+    @SerializedName("waiting_on") val waitingOn: List<Long> = emptyList()
 )
 
 data class TaskLink(

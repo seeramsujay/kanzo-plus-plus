@@ -24,10 +24,31 @@ data class ResolvedEndpoint(
     val token: String
 )
 
+data class ResolvedPublication(
+    val endpoint: ResolvedEndpoint,
+    val timestamp: Long
+)
+
 object KanzoTunnel {
     const val PREFIX = "KANZOBUNKER:"
     private const val GCM_TAG_LENGTH_BITS = 128
     private const val GCM_IV_LENGTH_BYTES = 12
+
+    fun validateEndpointUrl(url: String, requireHttps: Boolean = true): String {
+        val trimmed = url.trim().trimEnd('/')
+        val uri = java.net.URI.create(trimmed)
+        val scheme = uri.scheme?.lowercase()
+        if (requireHttps) {
+            if (scheme != "https") {
+                throw SecurityException("Insecure tunnel endpoint: tunnel URLs must use HTTPS (received: $trimmed)")
+            }
+        } else {
+            if (scheme != "http" && scheme != "https") {
+                throw IllegalArgumentException("Invalid URL scheme: $scheme (must be http or https)")
+            }
+        }
+        return trimmed
+    }
 
     fun parse(raw: String): BunkerConfig? {
         val trimmed = raw.trim()
@@ -66,6 +87,7 @@ object KanzoTunnel {
                 "https://ntfy.sh",
                 "https://ntfy.adminforge.de"
             )
+            val validPublications = mutableListOf<ResolvedPublication>()
             var lastEx: Exception? = null
 
             for (server in servers) {
@@ -79,21 +101,31 @@ object KanzoTunnel {
                     client.newCall(request).execute().use { response ->
                         if (!response.isSuccessful) return@use
                         val rawBody = response.body?.string() ?: return@use
-                        val lastLine = rawBody.lines().filter { it.isNotBlank() }.lastOrNull() ?: return@use
+                        val lines = rawBody.lines().filter { it.isNotBlank() }
+                        if (lines.isEmpty()) return@use
+                        val lastLine = lines.last()
 
                         val decryptedText = decryptPayload(lastLine.trim(), config.encryptionKeyBase64)
                         if (decryptedText.startsWith("{")) {
                             val json = JsonParser.parseString(decryptedText).asJsonObject
-                            val url = json.get("url")?.asString ?: return@use
+                            val rawUrl = json.get("url")?.asString ?: return@use
                             val token = json.get("token")?.asString ?: config.token
-                            return@withContext ResolvedEndpoint(url.trimEnd('/'), token)
+                            val ts = json.get("timestamp")?.asLong ?: json.get("ts")?.asLong ?: 0L
+                            val validatedUrl = validateEndpointUrl(rawUrl, requireHttps = true)
+                            validPublications.add(ResolvedPublication(ResolvedEndpoint(validatedUrl, token), ts))
                         } else if (decryptedText.startsWith("http")) {
-                            return@withContext ResolvedEndpoint(decryptedText.trim().trimEnd('/'), config.token)
+                            val validatedUrl = validateEndpointUrl(decryptedText, requireHttps = true)
+                            validPublications.add(ResolvedPublication(ResolvedEndpoint(validatedUrl, config.token), 0L))
                         }
                     }
                 } catch (e: Exception) {
                     lastEx = e
                 }
+            }
+
+            if (validPublications.isNotEmpty()) {
+                // Select the newest publication across both rendezvous servers
+                return@withContext validPublications.maxByOrNull { it.timestamp }!!.endpoint
             }
             throw lastEx ?: IllegalStateException("Failed to resolve dynamic tunnel from rendezvous")
         }

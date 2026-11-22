@@ -9,6 +9,7 @@ android/.gradle/
 android/**/build/
 android/.idea/
 android/**/*.iml
+android/.kotlin/
 android/local.properties
 android/*.keystore
 !android/app/debug.keystore

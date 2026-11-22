@@ -40,6 +40,12 @@ SERVICE_FILE="${SYSTEMD_USER_DIR}/kanzo-tunnel.service"
 
 mkdir -p "${CONFIG_DIR}"
 
+if ! python3 -c "from cryptography.hazmat.primitives.ciphers.aead import AESGCM" 2>/dev/null; then
+    echo -e "${RED}[!] Python 'cryptography' library is required for AES-256-GCM encrypted rendezvous.${NC}"
+    echo -e "${YELLOW}    Please install it using: python3 -m pip install cryptography (or apt install python3-cryptography)${NC}"
+    exit 1
+fi
+
 DEFAULT_KANZO_PORT=4242
 DEFAULT_PROXY_PORT=4243
 TUNNEL_PROVIDER="pinggy"
@@ -260,18 +266,29 @@ cleanup() {
     if [[ -n "${PROXY_PID:-}" ]] && kill -0 "${PROXY_PID}" 2>/dev/null; then
         kill "${PROXY_PID}" 2>/dev/null || true
     fi
-    pkill -f "a\.pinggy\.io" 2>/dev/null || true
-    rm -f "${PID_FILE}" "${PROXY_PID_FILE}"
+    if [[ -f "${PID_FILE}" ]]; then
+        local my_pid
+        my_pid=$(cat "${PID_FILE}" 2>/dev/null || true)
+        if [[ "$my_pid" == "$$" ]]; then
+            rm -f "${PID_FILE}"
+        fi
+    fi
+    if [[ -f "${PROXY_PID_FILE}" ]]; then
+        local my_ppid
+        my_ppid=$(cat "${PROXY_PID_FILE}" 2>/dev/null || true)
+        if [[ "$my_ppid" == "${PROXY_PID:-}" ]]; then
+            rm -f "${PROXY_PID_FILE}"
+        fi
+    fi
     release_lock
     exit 0
 }
-
-trap cleanup SIGINT SIGTERM EXIT
 
 if ! acquire_lock; then
     echo -e "${RED}[!] Another kanzo-tunnel instance is already running.${NC}"
     exit 1
 fi
+trap cleanup SIGINT SIGTERM EXIT
 echo $$ > "${PID_FILE}"
 
 # Banner
@@ -324,11 +341,25 @@ fi
 # Start transparent local HTTP reverse proxy on PROXY_PORT to rewrite Host to localhost:$LOCAL_PORT
 PROXY_PORT=$((LOCAL_PORT + 1))
 python3 -c "
-import http.server, socketserver, urllib.request, sys
+import http.server, urllib.request, sys
+
+class ThreadedHTTPServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
 
 class ProxyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     def do_ANY(self):
+        auth_header = self.headers.get('Authorization', '')
+        expected_token = '${TOKEN}'
+        if not auth_header.startswith('Bearer ') or auth_header[7:].strip() != expected_token:
+            self.send_response(401)
+            self.send_header('Content-Type', 'text/plain')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(b'Unauthorized: Invalid or missing pairing token')
+            return
+
         content_len = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_len) if content_len > 0 else None
         
@@ -367,8 +398,7 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
     do_PATCH = do_ANY
     do_HEAD = do_ANY
 
-socketserver.TCPServer.allow_reuse_address = True
-httpd = socketserver.TCPServer(('127.0.0.1', ${PROXY_PORT}), ProxyHandler)
+httpd = ThreadedHTTPServer(('127.0.0.1', ${PROXY_PORT}), ProxyHandler)
 httpd.serve_forever()
 " &
 PROXY_PID=$!
@@ -409,8 +439,8 @@ fi
 
 encrypt_and_publish() {
     local target_url="$1"
-    python3 -c "
-import base64, os, urllib.request, json
+    if python3 -c "
+import base64, os, urllib.request, json, sys, time
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 key = base64.b64decode('${KEY_B64}')
@@ -419,7 +449,7 @@ nonce = os.urandom(12)
 payload_dict = {
     'url': '${target_url}',
     'token': '${TOKEN}',
-    'timestamp': int(__import__('time').time())
+    'timestamp': int(time.time())
 }
 plaintext = json.dumps(payload_dict).encode('utf-8')
 ciphertext = aesgcm.encrypt(nonce, plaintext, None)
@@ -427,6 +457,7 @@ payload_b64 = base64.b64encode(nonce + ciphertext).decode('utf-8')
 
 # Publish to high-availability rendezvous federation
 servers = ['https://ntfy.sh', 'https://ntfy.adminforge.de']
+success = False
 for srv in servers:
     try:
         req = urllib.request.Request(
@@ -441,71 +472,159 @@ for srv in servers:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             if resp.status == 200:
-                print(f'[✓] Encrypted Pinggy endpoint published via {srv}')
-                break
-    except Exception as e:
+                print(f'[✓] Encrypted rendezvous endpoint published via {srv}')
+                success = True
+    except Exception:
         continue
-" 2>/dev/null || true
+
+sys.exit(0 if success else 1)
+"; then
+        return 0
+    else
+        echo -e "${YELLOW}[!] Rendezvous publication failed to both servers. Will retry in background.${NC}" >&2
+        return 1
+    fi
 }
 
-echo -e "${BLUE}[*] Establishing reverse tunnel via Pinggy SSH 443 (Fortinet bypass)...${NC}"
+CANDIDATE_HOSTS=("ap.a.pinggy.io" "us.a.pinggy.io" "eu.a.pinggy.io" "a.pinggy.io" "free.pinggy.io")
+HOST_INDEX=0
 
 start_pinggy_tunnel() {
+    local target_host="${CANDIDATE_HOSTS[$HOST_INDEX]}"
+    echo -e "${BLUE}[*] Connecting to Pinggy cluster node: ${CYAN}${target_host}${NC} (port 443)..."
     # Outbound SSH over TCP port 443 with TLS masquerade
     ssh -p 443 \
         -R0:127.0.0.1:${PROXY_PORT} \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
+        -o StrictHostKeyChecking=accept-new \
+        -o UserKnownHostsFile="${CONFIG_DIR}/known_hosts" \
         -o ServerAliveInterval=15 \
         -o ServerAliveCountMax=3 \
         -o ExitOnForwardFailure=yes \
         -o TCPKeepAlive=yes \
-        -N a.pinggy.io > "${LOG_FILE}" 2>&1 &
+        -N "${target_host}" > "${LOG_FILE}" 2>&1 &
     TUNNEL_PID=$!
 }
 
-start_pinggy_tunnel
-
-# Wait for tunnel public endpoint to appear in log
-echo -e "${YELLOW}[*] Waiting for Pinggy endpoint assignment on port 443...${NC}"
-ASSIGNED_URL=""
-for _ in {1..30}; do
-    if [[ -f "${LOG_FILE}" ]]; then
-        ASSIGNED_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.pinggy\.link" "${LOG_FILE}" | head -n 1 || true)
-        if [[ -z "$ASSIGNED_URL" ]]; then
-            ASSIGNED_URL=$(grep -oE "https://[a-zA-Z0-9.-]+" "${LOG_FILE}" | grep -v "pinggy.io" | head -n 1 || true)
-        fi
-        if [[ -n "$ASSIGNED_URL" ]]; then
-            break
-        fi
+start_cloudflare_tunnel() {
+    if ! command -v cloudflared &>/dev/null; then
+        echo -e "${RED}[!] cloudflared is not installed. Please install cloudflared or use --provider pinggy.${NC}"
+        exit 1
     fi
-    sleep 1
-done
+    cloudflared tunnel --url "http://127.0.0.1:${PROXY_PORT}" > "${LOG_FILE}" 2>&1 &
+    TUNNEL_PID=$!
+}
 
+discover_pinggy_url() {
+    local timeout="${1:-30}"
+    local url=""
+    for _ in $(seq 1 "$timeout"); do
+        if [[ -f "${LOG_FILE}" ]]; then
+            url=$(grep -oE "https://[a-zA-Z0-9.-]+\.(pinggy\.link|pinggy-free\.link)" "${LOG_FILE}" | tail -n 1 || true)
+            if [[ -z "$url" ]]; then
+                url=$(grep -oE "https://[a-zA-Z0-9.-]+" "${LOG_FILE}" | grep -v "pinggy.io" | tail -n 1 || true)
+            fi
+            if [[ -n "$url" ]]; then
+                echo "$url"
+                return 0
+            fi
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+discover_cloudflare_url() {
+    local timeout="${1:-30}"
+    local url=""
+    for _ in $(seq 1 "$timeout"); do
+        if [[ -f "${LOG_FILE}" ]]; then
+            url=$(grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" "${LOG_FILE}" | tail -n 1 || true)
+            if [[ -n "$url" ]]; then
+                echo "$url"
+                return 0
+            fi
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+ASSIGNED_URL=""
+case "$TUNNEL_PROVIDER" in
+    pinggy)
+        echo -e "${BLUE}[*] Establishing reverse tunnel via Pinggy SSH 443 (Fortinet bypass)...${NC}"
+        start_pinggy_tunnel
+        echo -e "${YELLOW}[*] Waiting for Pinggy endpoint assignment on port 443...${NC}"
+        ASSIGNED_URL=$(discover_pinggy_url 30 || true)
+        ;;
+    cloudflare)
+        echo -e "${BLUE}[*] Establishing reverse tunnel via Cloudflare tunnel...${NC}"
+        start_cloudflare_tunnel
+        echo -e "${YELLOW}[*] Waiting for Cloudflare endpoint assignment...${NC}"
+        ASSIGNED_URL=$(discover_cloudflare_url 30 || true)
+        ;;
+    custom)
+        if [[ -z "$CUSTOM_URL" ]]; then
+            echo -e "${RED}[!] --custom-url is required when --provider custom is selected.${NC}"
+            exit 1
+        fi
+        ASSIGNED_URL="$CUSTOM_URL"
+        TUNNEL_PID=""
+        ;;
+    *)
+        echo -e "${RED}[!] Unsupported tunnel provider: '$TUNNEL_PROVIDER'. Supported: pinggy, cloudflare, custom${NC}"
+        exit 1
+        ;;
+esac
+
+PUBLISHED=false
 if [[ -n "$ASSIGNED_URL" ]]; then
-    echo -e "${GREEN}${BOLD}[✓] Pinggy Tunnel is LIVE & FORTINET-READY!${NC}"
+    echo -e "${GREEN}${BOLD}[✓] Tunnel is LIVE!${NC}"
+    echo -e "    Provider:        ${CYAN}${TUNNEL_PROVIDER}${NC}"
     echo -e "    Public URL:      ${CYAN}${ASSIGNED_URL}${NC}"
     echo -e "    Encrypted Topic: ${CYAN}${TOPIC}${NC}"
-    encrypt_and_publish "$ASSIGNED_URL"
-    echo -e "${GREEN}[✓] Published dynamic AES-256-GCM encrypted rendezvous ticket!${NC}"
+    if encrypt_and_publish "$ASSIGNED_URL"; then
+        PUBLISHED=true
+        echo -e "${GREEN}[✓] Published dynamic AES-256-GCM encrypted rendezvous ticket!${NC}"
+    fi
     echo -e "${BLUE}[*] Fortinet bypass active over TCP 443. Press Ctrl+C to terminate.${NC}\n"
 else
     echo -e "${RED}[!] Tunnel failed to obtain public URL. Check log:${NC}"
     cat "${LOG_FILE}" 2>/dev/null || true
 fi
 
-# Tunnel supervisor loop with auto-reconnection
+# Tunnel supervisor loop with auto-reconnection and publication retry
+RETRY_COUNT=0
 while true; do
-    if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
-        echo -e "${YELLOW}[!] Pinggy tunnel disconnected. Reconnecting outbound SSH 443...${NC}"
-        start_pinggy_tunnel
-        sleep 3
-        NEW_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.pinggy\.link" "${LOG_FILE}" | tail -n 1 || true)
-        if [[ -n "$NEW_URL" ]] && [[ "$NEW_URL" != "$ASSIGNED_URL" ]]; then
-            ASSIGNED_URL="$NEW_URL"
-            echo -e "${GREEN}[✓] New Pinggy Endpoint assigned: ${ASSIGNED_URL}${NC}"
-            encrypt_and_publish "$ASSIGNED_URL"
+    if [[ "$TUNNEL_PROVIDER" == "pinggy" ]]; then
+        if [[ -n "${TUNNEL_PID:-}" ]] && ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+            echo -e "${YELLOW}[!] Pinggy tunnel disconnected. Rotating cluster node & reconnecting outbound SSH 443...${NC}"
+            HOST_INDEX=$(( (HOST_INDEX + 1) % ${#CANDIDATE_HOSTS[@]} ))
+            start_pinggy_tunnel
+            NEW_URL=$(discover_pinggy_url 30 || true)
+            if [[ -n "$NEW_URL" ]]; then
+                ASSIGNED_URL="$NEW_URL"
+                echo -e "${GREEN}[✓] New Pinggy Endpoint assigned: ${ASSIGNED_URL}${NC}"
+                if encrypt_and_publish "$ASSIGNED_URL"; then
+                    PUBLISHED=true
+                else
+                    PUBLISHED=false
+                fi
+            fi
         fi
     fi
+
+    # Retry publication if previous attempt failed
+    if [[ "$PUBLISHED" = false ]] && [[ -n "$ASSIGNED_URL" ]]; then
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if (( RETRY_COUNT % 2 == 0 )); then
+            echo -e "${YELLOW}[*] Retrying rendezvous publication for ${ASSIGNED_URL}...${NC}"
+            if encrypt_and_publish "$ASSIGNED_URL"; then
+                PUBLISHED=true
+                echo -e "${GREEN}[✓] Rendezvous publication succeeded on retry!${NC}"
+            fi
+        fi
+    fi
+
     sleep 5
 done
