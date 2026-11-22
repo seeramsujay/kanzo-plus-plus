@@ -3,3 +3,21 @@
 # macOS metadata (AppleDouble files appear on exFAT drives)
 ._*
 .DS_Store
+
+# Android & Gradle build artifacts
+android/.gradle/
+android/**/build/
+android/.idea/
+android/**/*.iml
+android/.kotlin/
+android/local.properties
+android/*.keystore
+!android/app/debug.keystore
+*.apk
+*.aab
+
+# Tunnel session configs & logs
+.config/
+*.pid
+*.lock
+
