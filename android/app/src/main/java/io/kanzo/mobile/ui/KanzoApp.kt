@@ -37,6 +37,8 @@ fun KanzoApp(viewModel: KanzoViewModel) {
     val errorMessage by viewModel.errorMessage.collectAsState()
     val activeProject by viewModel.activeProject.collectAsState()
     val selectedTaskDetail by viewModel.selectedTaskDetail.collectAsState()
+    val isCreatingTask by viewModel.isCreatingTask.collectAsState()
+    val isSubmittingComment by viewModel.isSubmittingComment.collectAsState()
 
     var viewMode by remember { mutableStateOf(ViewMode.BOARD) }
     var showConnectionDialog by remember { mutableStateOf(false) }
@@ -309,9 +311,10 @@ fun KanzoApp(viewModel: KanzoViewModel) {
         CreateTaskDialog(
             projects = board?.projects ?: emptyList(),
             defaultProject = activeProject,
+            isSubmitting = isCreatingTask,
             onDismiss = { showCreateDialog = false },
-            onCreate = { proj, title, desc ->
-                viewModel.createTaskAsync(proj, title, desc)
+            onCreate = { proj, title, desc, onComplete ->
+                viewModel.createTaskInScope(proj, title, desc, onComplete)
             }
         )
     }
@@ -320,9 +323,12 @@ fun KanzoApp(viewModel: KanzoViewModel) {
         TaskDetailDialog(
             taskDetail = detail,
             availableStatuses = statuses,
+            isSubmittingComment = isSubmittingComment,
             onDismiss = { viewModel.closeTaskDetail() },
             onMove = { newStatus -> viewModel.moveTask(detail.task.id, newStatus) },
-            onAddComment = { body -> viewModel.addCommentAsync(detail.task.id, body) }
+            onAddComment = { body, onComplete ->
+                viewModel.addCommentInScope(detail.task.id, body, onComplete)
+            }
         )
     }
 

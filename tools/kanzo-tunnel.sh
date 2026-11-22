@@ -40,12 +40,6 @@ SERVICE_FILE="${SYSTEMD_USER_DIR}/kanzo-tunnel.service"
 
 mkdir -p "${CONFIG_DIR}"
 
-if ! python3 -c "from cryptography.hazmat.primitives.ciphers.aead import AESGCM" 2>/dev/null; then
-    echo -e "${RED}[!] Python 'cryptography' library is required for AES-256-GCM encrypted rendezvous.${NC}"
-    echo -e "${YELLOW}    Please install it using: python3 -m pip install cryptography (or apt install python3-cryptography)${NC}"
-    exit 1
-fi
-
 DEFAULT_KANZO_PORT=4242
 DEFAULT_PROXY_PORT=4243
 TUNNEL_PROVIDER="pinggy"
@@ -241,6 +235,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if ! python3 -c "from cryptography.hazmat.primitives.ciphers.aead import AESGCM" 2>/dev/null; then
+    echo -e "${RED}[!] Python 'cryptography' library is required for AES-256-GCM encrypted rendezvous.${NC}"
+    echo -e "${YELLOW}    Please install it using: python3 -m pip install cryptography (or apt install python3-cryptography)${NC}"
+    exit 1
+fi
 
 acquire_lock() {
     exec 200>"${LOCK_FILE}"

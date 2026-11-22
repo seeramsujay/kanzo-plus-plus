@@ -18,8 +18,9 @@ import kotlinx.coroutines.launch
 fun CreateTaskDialog(
     projects: List<Project>,
     defaultProject: String,
+    isSubmitting: Boolean = false,
     onDismiss: () -> Unit,
-    onCreate: suspend (project: String, title: String, description: String?) -> Boolean
+    onCreate: (project: String, title: String, description: String?, onComplete: (Boolean) -> Unit) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -27,8 +28,6 @@ fun CreateTaskDialog(
         mutableStateOf(if (defaultProject != "all") defaultProject else projects.firstOrNull()?.slug ?: "main")
     }
     var expandedProjectDropdown by remember { mutableStateOf(false) }
-    var isSubmitting by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -117,17 +116,14 @@ fun CreateTaskDialog(
                     Button(
                         onClick = {
                             if (title.isNotBlank() && !isSubmitting) {
-                                coroutineScope.launch {
-                                    isSubmitting = true
-                                    val success = onCreate(
-                                        selectedProject,
-                                        title.trim(),
-                                        description.trim().takeIf { it.isNotEmpty() }
-                                    )
+                                onCreate(
+                                    selectedProject,
+                                    title.trim(),
+                                    description.trim().takeIf { it.isNotEmpty() }
+                                ) { success ->
                                     if (success) {
                                         onDismiss()
                                     }
-                                    isSubmitting = false
                                 }
                             }
                         },

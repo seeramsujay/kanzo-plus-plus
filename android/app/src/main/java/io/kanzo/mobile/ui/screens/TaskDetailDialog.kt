@@ -30,13 +30,12 @@ import kotlinx.coroutines.launch
 fun TaskDetailDialog(
     taskDetail: TaskDetail,
     availableStatuses: List<String>,
+    isSubmittingComment: Boolean = false,
     onDismiss: () -> Unit,
     onMove: (String) -> Unit,
-    onAddComment: suspend (String) -> Boolean
+    onAddComment: (String, onComplete: (Boolean) -> Unit) -> Unit
 ) {
     var commentText by remember { mutableStateOf("") }
-    var isSubmittingComment by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
     val task = taskDetail.task
 
     Dialog(
@@ -224,15 +223,10 @@ fun TaskDetailDialog(
                         onClick = {
                             val draft = commentText.trim()
                             if (draft.isNotBlank() && !isSubmittingComment) {
-                                coroutineScope.launch {
-                                    isSubmittingComment = true
-                                    val success = onAddComment(draft)
-                                    if (success) {
-                                        if (commentText.trim() == draft) {
-                                            commentText = ""
-                                        }
+                                onAddComment(draft) { success ->
+                                    if (success && commentText.trim() == draft) {
+                                        commentText = ""
                                     }
-                                    isSubmittingComment = false
                                 }
                             }
                         },

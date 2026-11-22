@@ -46,6 +46,12 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedTaskDetail = MutableStateFlow<TaskDetail?>(null)
     val selectedTaskDetail: StateFlow<TaskDetail?> = _selectedTaskDetail.asStateFlow()
 
+    private val _isCreatingTask = MutableStateFlow(false)
+    val isCreatingTask: StateFlow<Boolean> = _isCreatingTask.asStateFlow()
+
+    private val _isSubmittingComment = MutableStateFlow(false)
+    val isSubmittingComment: StateFlow<Boolean> = _isSubmittingComment.asStateFlow()
+
     private var connectionJob: Job? = null
     private var boardRefreshJob: Job? = null
     private var pollingJob: Job? = null
@@ -213,6 +219,27 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun createTaskInScope(
+        project: String,
+        title: String,
+        description: String? = null,
+        onComplete: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isCreatingTask.value = true
+            try {
+                api.createTask(project, title, description)
+                refreshBoard()
+                onComplete(true)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to create task: ${e.message}"
+                onComplete(false)
+            } finally {
+                _isCreatingTask.value = false
+            }
+        }
+    }
+
     fun createTask(project: String, title: String, description: String? = null) {
         viewModelScope.launch {
             createTaskAsync(project, title, description)
@@ -235,13 +262,48 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun addCommentAsync(taskId: Long, body: String): Boolean {
         return try {
-            api.addComment(taskId, body)
-            openTaskDetail(taskId)
+            val comment = api.addComment(taskId, body)
+            _selectedTaskDetail.value?.let { current ->
+                if (current.task.id == taskId) {
+                    _selectedTaskDetail.value = current.copy(
+                        comments = current.comments + comment,
+                        task = current.task.copy(comments = current.task.comments + 1)
+                    )
+                }
+            }
             refreshBoard()
             true
         } catch (e: Exception) {
             _errorMessage.value = "Failed to add comment: ${e.message}"
             false
+        }
+    }
+
+    fun addCommentInScope(
+        taskId: Long,
+        body: String,
+        onComplete: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isSubmittingComment.value = true
+            try {
+                val comment = api.addComment(taskId, body)
+                _selectedTaskDetail.value?.let { current ->
+                    if (current.task.id == taskId) {
+                        _selectedTaskDetail.value = current.copy(
+                            comments = current.comments + comment,
+                            task = current.task.copy(comments = current.task.comments + 1)
+                        )
+                    }
+                }
+                refreshBoard()
+                onComplete(true)
+            } catch (e: Exception) {
+                _errorMessage.value = "Failed to add comment: ${e.message}"
+                onComplete(false)
+            } finally {
+                _isSubmittingComment.value = false
+            }
         }
     }
 
@@ -261,10 +323,9 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive) {
                 try {
                     val changes = api.getChanges()
-                    if (lastChangeToken != null && lastChangeToken != changes.changes) {
+                    if (lastChangeToken != null && lastChangeToken != changes.changes && boardRefreshJob?.isActive != true) {
                         refreshBoard()
                     }
-                    lastChangeToken = changes.changes
                     delay(2500)
                 } catch (e: CancellationException) {
                     break
