@@ -263,8 +263,9 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun addCommentAsync(taskId: Long, body: String): Boolean {
         return try {
             val comment = api.addComment(taskId, body)
+            taskDetailJob?.cancel()
             _selectedTaskDetail.value?.let { current ->
-                if (current.task.id == taskId) {
+                if (current.task.id == taskId && current.comments.none { it.id == comment.id }) {
                     _selectedTaskDetail.value = current.copy(
                         comments = current.comments + comment,
                         task = current.task.copy(comments = current.task.comments + 1)
@@ -288,8 +289,9 @@ class KanzoViewModel(application: Application) : AndroidViewModel(application) {
             _isSubmittingComment.value = true
             try {
                 val comment = api.addComment(taskId, body)
+                taskDetailJob?.cancel()
                 _selectedTaskDetail.value?.let { current ->
-                    if (current.task.id == taskId) {
+                    if (current.task.id == taskId && current.comments.none { it.id == comment.id }) {
                         _selectedTaskDetail.value = current.copy(
                             comments = current.comments + comment,
                             task = current.task.copy(comments = current.task.comments + 1)

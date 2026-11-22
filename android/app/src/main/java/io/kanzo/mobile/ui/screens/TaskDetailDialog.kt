@@ -39,7 +39,7 @@ fun TaskDetailDialog(
     val task = taskDetail.task
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isSubmittingComment) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(

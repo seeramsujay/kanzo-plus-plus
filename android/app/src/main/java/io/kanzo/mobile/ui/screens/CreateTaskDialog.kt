@@ -29,7 +29,7 @@ fun CreateTaskDialog(
     }
     var expandedProjectDropdown by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = { if (!isSubmitting) onDismiss() }) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
