@@ -311,12 +311,33 @@ fi
 KANZO_DATA_DIR="${KANZO_HOME:-${HOME}/kanzo}"
 KANZO_CORE_TOKEN_FILE="${KANZO_DATA_DIR}/auth_token"
 
+resolve_effective_token() {
+    if [[ -n "${KANZO_AUTH_TOKEN:-}" ]]; then
+        echo "$KANZO_AUTH_TOKEN" | tr -d '[:space:]'
+        return
+    fi
+    local config_file="${KANZO_DATA_DIR}/config.toml"
+    if [[ -f "$config_file" ]]; then
+        local cfg_token
+        cfg_token=$(grep -E '^\s*auth_token\s*=' "$config_file" | head -n1 | sed -E 's/^\s*auth_token\s*=\s*["'"'"']?([^"'"'"']+)["'"'"']?/\1/' | tr -d '[:space:]')
+        if [[ -n "$cfg_token" ]]; then
+            echo "$cfg_token"
+            return
+        fi
+    fi
+    if [[ -f "${KANZO_CORE_TOKEN_FILE}" ]]; then
+        cat "${KANZO_CORE_TOKEN_FILE}" | tr -d '[:space:]'
+        return
+    fi
+    echo ""
+}
+
 if [[ -f "${CONFIG_FILE}" ]] && [[ "$RESET_KEYS" = false ]]; then
     TOPIC=$(python3 -c "import json; d = json.load(open('${CONFIG_FILE}')); print(d.get('ntfy_topic', ''))")
     KEY_B64=$(python3 -c "import json; d = json.load(open('${CONFIG_FILE}')); print(d.get('key', ''))")
-    TOKEN=$(python3 -c "import json; d = json.load(open('${CONFIG_FILE}')); print(d.get('token', ''))")
-    if [[ -f "${KANZO_CORE_TOKEN_FILE}" ]]; then
-        TOKEN=$(cat "${KANZO_CORE_TOKEN_FILE}" | tr -d '[:space:]')
+    TOKEN=$(resolve_effective_token)
+    if [[ -z "$TOKEN" ]]; then
+        TOKEN=$(python3 -c "import json; d = json.load(open('${CONFIG_FILE}')); print(d.get('token', ''))")
     fi
     if [[ "$DAEMON_MODE" = false ]]; then
         echo -e "${GREEN}[✓] Loaded persistent device binding:${NC}"
@@ -327,16 +348,20 @@ if [[ -f "${CONFIG_FILE}" ]] && [[ "$RESET_KEYS" = false ]]; then
 else
     TOPIC="kanzo-bunker-$(openssl rand -hex 24)"
     KEY_B64=$(openssl rand 32 | base64 -w 0)
-    if [[ -f "${KANZO_CORE_TOKEN_FILE}" ]] && [[ "$RESET_KEYS" = false ]]; then
-        TOKEN=$(cat "${KANZO_CORE_TOKEN_FILE}" | tr -d '[:space:]')
-    else
+    TOKEN=$(resolve_effective_token)
+    if [[ -z "$TOKEN" ]] || [[ "$RESET_KEYS" = true ]]; then
         TOKEN=$(openssl rand -hex 32)
         mkdir -p "${KANZO_DATA_DIR}"
-        echo "$TOKEN" > "${KANZO_CORE_TOKEN_FILE}"
+        (
+            umask 077
+            echo "$TOKEN" > "${KANZO_CORE_TOKEN_FILE}"
+        )
         chmod 600 "${KANZO_CORE_TOKEN_FILE}"
     fi
 
-    cat <<EOF > "${CONFIG_FILE}"
+    (
+        umask 077
+        cat <<EOF > "${CONFIG_FILE}"
 {
   "ntfy_topic": "${TOPIC}",
   "key": "${KEY_B64}",
@@ -344,6 +369,7 @@ else
   "port": ${LOCAL_PORT}
 }
 EOF
+    )
     chmod 600 "${CONFIG_FILE}"
     SHOW_BIND_QR=true
     if [[ "$DAEMON_MODE" = false ]]; then
@@ -407,6 +433,15 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{\"error\": \"Unauthorized: valid Bearer token or kanzo_session cookie required\"}')
             return
+
+        origin = self.headers.get('Origin')
+        if origin:
+            parsed_origin = urllib.parse.urlparse(origin)
+            if parsed_origin.scheme not in ('http', 'https') or not parsed_origin.netloc:
+                self.send_response(403)
+                self.end_headers()
+                self.wfile.write(b'{\"error\": \"Forbidden: invalid Origin header\"}')
+                return
 
         content_len = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_len) if content_len > 0 else None
